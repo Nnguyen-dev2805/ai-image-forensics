@@ -1,0 +1,55 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local environment
+.env
+.env.*
+
+# Local agent and planning files
+AGENTS.md
+.agents/
+.cbmignore
+configs/
+docs/
+
+# Data, models, and generated artifacts
+data/
+manifests/
+outputs/
+.cache/
+cache/
+checkpoints/
+weights/
+models/
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# External downloaded repositories and tools
+external/*
+!external/.gitkeep
+
+# Codebase memory local cache
+.codebase-memory/
