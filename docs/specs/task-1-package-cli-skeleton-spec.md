@@ -9,8 +9,8 @@ Create the minimal Python package skeleton for `aiforensics` and expose a workin
 Before coding, read:
 
 - `AGENTS.md`
-- `docs/phase-ab-architecture.md`
-- `docs/phase-ab-plan.md`
+- `docs/architecture/phase-ab-architecture.md`
+- `docs/plan/phase-ab-plan.md`
 - `configs/phase_ab_smoke.yaml`
 
 ## Files To Create

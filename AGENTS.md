@@ -8,8 +8,8 @@ Build Phase A/B as a reproducible AI-image-forensics baseline suite. The goal is
 
 Before implementing or changing behavior, read these files:
 
-- `docs/phase-ab-architecture.md`
-- `docs/phase-ab-plan.md`
+- `docs/architecture/phase-ab-architecture.md`
+- `docs/plan/phase-ab-plan.md`
 - `docs/schemas/manifest.md`
 - `docs/schemas/predictions-jsonl.md`
 - `configs/phase_ab.yaml`

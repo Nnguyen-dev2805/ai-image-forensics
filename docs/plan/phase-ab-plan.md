@@ -4,11 +4,11 @@
 
 **Goal:** Build a reproducible Phase A/B baseline suite for AI-generated image detection.
 
-**Architecture:** Implement a manifest-first Python package with a stable CLI, shared schemas, baseline adapters, evaluation, and reports. Keep the monorepo layout broad, but only implement the Phase A/B functionality described in `docs/phase-ab-architecture.md`.
+**Architecture:** Implement a manifest-first Python package with a stable CLI, shared schemas, baseline adapters, evaluation, and reports. Keep the monorepo layout broad, but only implement the Phase A/B functionality described in `docs/architecture/phase-ab-architecture.md`.
 
 **Tech Stack:** Python 3.10, YAML config, pytest, scikit-learn metrics, PIL/Pillow image fixtures, OpenCLIP for CLIP probe, Hugging Face Transformers for Qwen-VL, and external official NPR repository integration.
 
-**Spec:** `docs/phase-ab-architecture.md`
+**Spec:** `docs/architecture/phase-ab-architecture.md`
 
 ## Global Constraints
 
