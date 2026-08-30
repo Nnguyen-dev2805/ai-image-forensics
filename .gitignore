@@ -26,12 +26,10 @@ env/
 .env
 .env.*
 
-# Local agent and planning files
-AGENTS.md
+# Local agent tooling (configs/docs/AGENTS.md are tracked)
 .agents/
 .cbmignore
-configs/
-docs/
+.workbuddy-ai
 
 # Data, models, and generated artifacts
 data/
