@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Sequence
+import pathlib
 
 __all__ = ["build_parser", "main"]
 
@@ -14,18 +14,12 @@ SUPPORTED_BASELINES: tuple[str, ...] = (
     "assisted_qwen",
 )
 
-SUPPORTED_COMMANDS: tuple[str, ...] = (
-    "prepare",
-    "run",
-    "evaluate",
-    "report",
-)
-
 
 def _add_config_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config",
         required=True,
+        type=pathlib.Path,
         help="Path to a Phase A/B YAML config file.",
     )
 
@@ -115,15 +109,11 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Dispatch a CLI invocation to the matching placeholder handler."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    handler = getattr(args, "handler", None)
-    if handler is None:
-        parser.error("no command handler registered")
-        return 2
-    return int(handler(args))
+    return int(args.handler(args))
 
 
 if __name__ == "__main__":

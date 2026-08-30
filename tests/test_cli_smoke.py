@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import pytest
 
 from aiforensics.cli.main import build_parser, main
@@ -10,43 +14,24 @@ from aiforensics.cli.main import build_parser, main
 SMOKE_CONFIG = "configs/phase_ab_smoke.yaml"
 
 
-def test_prepare_command_prints_and_returns_zero(capsys: pytest.CaptureFixture[str]) -> None:
-    exit_code = main(["prepare", "--config", SMOKE_CONFIG])
-    captured = capsys.readouterr()
-    assert exit_code == 0
-    assert "prepare" in captured.out
-    assert SMOKE_CONFIG in captured.out
-
-
-def test_run_clip_probe_command_prints_and_returns_zero(
+@pytest.mark.parametrize(
+    ("argv", "expected_substring"),
+    [
+        (["prepare", "--config", SMOKE_CONFIG], "prepare"),
+        (["run", "--baseline", "clip_probe", "--config", SMOKE_CONFIG], "clip_probe"),
+        (["evaluate", "--config", SMOKE_CONFIG], "evaluate"),
+        (["report", "--config", SMOKE_CONFIG], "report"),
+    ],
+)
+def test_subcommand_prints_and_returns_zero(
     capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+    expected_substring: str,
 ) -> None:
-    exit_code = main(
-        ["run", "--baseline", "clip_probe", "--config", SMOKE_CONFIG]
-    )
+    exit_code = main(argv)
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "clip_probe" in captured.out
-    assert SMOKE_CONFIG in captured.out
-
-
-def test_evaluate_command_prints_and_returns_zero(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    exit_code = main(["evaluate", "--config", SMOKE_CONFIG])
-    captured = capsys.readouterr()
-    assert exit_code == 0
-    assert "evaluate" in captured.out
-    assert SMOKE_CONFIG in captured.out
-
-
-def test_report_command_prints_and_returns_zero(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    exit_code = main(["report", "--config", SMOKE_CONFIG])
-    captured = capsys.readouterr()
-    assert exit_code == 0
-    assert "report" in captured.out
+    assert expected_substring in captured.out
     assert SMOKE_CONFIG in captured.out
 
 
@@ -55,8 +40,25 @@ def test_run_with_invalid_baseline_raises_system_exit() -> None:
         main(["run", "--baseline", "invalid", "--config", SMOKE_CONFIG])
 
 
-def test_module_help_exits_successfully(capsys: pytest.CaptureFixture[str]) -> None:
-    parser = build_parser()
-    with pytest.raises(SystemExit) as excinfo:
-        parser.parse_args(["--help"])
-    assert excinfo.value.code == 0
+def test_module_invocation_help_exits_successfully() -> None:
+    """Exercise the real `python -m aiforensics.cli.main --help` flow.
+
+    Guards the `if __name__ == "__main__":` block at the bottom of
+    `src/aiforensics/cli/main.py`, which is a Done Criterion in the spec.
+    Spawns a subprocess so the `__main__` guard actually runs, instead
+    of calling the parser in-process.
+    """
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src_path = os.path.join(repo_root, "src")
+    env = {**os.environ, "PYTHONPATH": src_path}
+    result = subprocess.run(
+        [sys.executable, "-m", "aiforensics.cli.main", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        cwd=repo_root,
+    )
+    assert result.returncode == 0
+    assert "usage:" in result.stdout
+    assert "COMMAND" in result.stdout
