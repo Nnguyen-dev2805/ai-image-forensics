@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import subprocess
 import sys
 
@@ -11,7 +12,9 @@ import pytest
 from aiforensics.cli.main import build_parser, main
 
 
-SMOKE_CONFIG = "configs/phase_ab_smoke.yaml"
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+SMOKE_CONFIG_PATH = REPO_ROOT / "configs" / "phase_ab_smoke.yaml"
+SMOKE_CONFIG = os.fspath(SMOKE_CONFIG_PATH)
 
 
 @pytest.mark.parametrize(
@@ -48,8 +51,7 @@ def test_module_invocation_help_exits_successfully() -> None:
     Spawns a subprocess so the `__main__` guard actually runs, instead
     of calling the parser in-process.
     """
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    src_path = os.path.join(repo_root, "src")
+    src_path = str(REPO_ROOT / "src")
     env = {**os.environ, "PYTHONPATH": src_path}
     result = subprocess.run(
         [sys.executable, "-m", "aiforensics.cli.main", "--help"],
@@ -57,7 +59,7 @@ def test_module_invocation_help_exits_successfully() -> None:
         text=True,
         check=False,
         env=env,
-        cwd=repo_root,
+        cwd=str(REPO_ROOT),
     )
     assert result.returncode == 0
     assert "usage:" in result.stdout
