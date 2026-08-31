@@ -27,7 +27,8 @@ env/
 .env.*
 
 # Local agent tooling (configs/docs/AGENTS.md are tracked)
-.agents/
+.agents
+.claude
 .cbmignore
 .workbuddy-ai
 

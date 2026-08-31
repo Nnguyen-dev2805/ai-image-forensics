@@ -5,6 +5,10 @@ from __future__ import annotations
 import argparse
 import pathlib
 
+from typing import Any
+
+from aiforensics.config import load_config
+
 __all__ = ["build_parser", "main"]
 
 SUPPORTED_BASELINES: tuple[str, ...] = (
@@ -24,7 +28,7 @@ def _add_config_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _build_prepare_parser(subparsers: argparse._SubParsersAction) -> None:
+def _build_prepare_parser(subparsers: Any) -> None:
     parser = subparsers.add_parser(
         "prepare",
         help="Validate or build dataset manifests.",
@@ -33,7 +37,7 @@ def _build_prepare_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(handler=_cmd_prepare)
 
 
-def _build_run_parser(subparsers: argparse._SubParsersAction) -> None:
+def _build_run_parser(subparsers: Any) -> None:
     parser = subparsers.add_parser(
         "run",
         help="Run a single baseline against a manifest.",
@@ -48,7 +52,7 @@ def _build_run_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(handler=_cmd_run)
 
 
-def _build_evaluate_parser(subparsers: argparse._SubParsersAction) -> None:
+def _build_evaluate_parser(subparsers: Any) -> None:
     parser = subparsers.add_parser(
         "evaluate",
         help="Compute metrics from prediction artifacts.",
@@ -57,7 +61,7 @@ def _build_evaluate_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(handler=_cmd_evaluate)
 
 
-def _build_report_parser(subparsers: argparse._SubParsersAction) -> None:
+def _build_report_parser(subparsers: Any) -> None:
     parser = subparsers.add_parser(
         "report",
         help="Render a Markdown report from run artifacts.",
@@ -88,24 +92,28 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_prepare(args: argparse.Namespace) -> int:
-    print(f"[prepare] placeholder: config={args.config}")
+    config = load_config(args.config)
+    print(f"[prepare] placeholder: project={config.project.name} phase={config.project.phase} config={args.config}")
     return 0
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
     print(
-        f"[run] placeholder: baseline={args.baseline} config={args.config}"
+        f"[run] placeholder: baseline={args.baseline} project={config.project.name} phase={config.project.phase} config={args.config}"
     )
     return 0
 
 
 def _cmd_evaluate(args: argparse.Namespace) -> int:
-    print(f"[evaluate] placeholder: config={args.config}")
+    config = load_config(args.config)
+    print(f"[evaluate] placeholder: project={config.project.name} phase={config.project.phase} config={args.config}")
     return 0
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
-    print(f"[report] placeholder: config={args.config}")
+    config = load_config(args.config)
+    print(f"[report] placeholder: project={config.project.name} phase={config.project.phase} config={args.config}")
     return 0
 
 

@@ -38,6 +38,13 @@ def test_subcommand_prints_and_returns_zero(
     assert SMOKE_CONFIG in captured.out
 
 
+def test_cli_prints_project_phase(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["prepare", "--config", SMOKE_CONFIG])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "phase_ab_smoke" in captured.out
+
+
 def test_run_with_invalid_baseline_raises_system_exit() -> None:
     with pytest.raises(SystemExit):
         main(["run", "--baseline", "invalid", "--config", SMOKE_CONFIG])
