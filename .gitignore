@@ -33,9 +33,9 @@ env/
 .workbuddy-ai
 
 # Data, models, and generated artifacts
-data/
-manifests/
-outputs/
+/data/
+/manifests/
+/outputs/
 .cache/
 cache/
 checkpoints/

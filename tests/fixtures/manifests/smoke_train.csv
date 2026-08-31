@@ -1,0 +1,3 @@
+sample_id,path,label,source,split,checksum,dataset,generator,width,height,mime_type,license,notes
+smoke/train/real_0001,real_0001.png,real,smoke,train,77845f63cbd1ecb93e10fbaff7e657044d25d59f0586905c9bdbddeb2c477309,,,,,,,
+smoke/train/fake_0001,fake_0001.png,fake,smoke,train,4b02621a1639a302da7e368db30b5b96f931f6be98b1154b2e0d787986227a46,,,,,,,

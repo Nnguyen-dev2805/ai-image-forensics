@@ -35,7 +35,10 @@ def test_subcommand_prints_and_returns_zero(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert expected_substring in captured.out
-    assert SMOKE_CONFIG in captured.out
+
+    # Only placeholders print the config path explicitly now
+    if argv[0] != "prepare":
+        assert SMOKE_CONFIG in captured.out
 
 
 def test_cli_prints_project_phase(capsys: pytest.CaptureFixture[str]) -> None:

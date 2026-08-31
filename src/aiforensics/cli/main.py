@@ -93,8 +93,53 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _cmd_prepare(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    print(f"[prepare] placeholder: project={config.project.name} phase={config.project.phase} config={args.config}")
-    return 0
+
+    if config.project.phase == "phase_ab_smoke":
+        from aiforensics.data.manifest import prepare_smoke_manifest
+        result = prepare_smoke_manifest(config)
+    else:
+        from aiforensics.data.manifest import ManifestError, load_manifest, validate_manifest
+
+        manifest_paths: list[pathlib.Path] = []
+        if config.datasets.tiny_genimage.enabled:
+            manifest_paths.extend([
+                config.datasets.tiny_genimage.train_manifest,
+                config.datasets.tiny_genimage.dev_manifest,
+            ])
+        if config.datasets.genimage_unseen.enabled:
+            manifest_paths.append(config.datasets.genimage_unseen.manifest)
+        if config.datasets.synthbuster.enabled:
+            manifest_paths.append(config.datasets.synthbuster.manifest)
+
+        all_records = []
+        found_any = False
+
+        for path in manifest_paths:
+            if path.exists():
+                found_any = True
+                records = load_manifest(path, data_root=config.paths.data_root)
+                all_records.extend(records)
+
+        if not found_any:
+            raise ManifestError(
+                "Real dataset manifest building is not implemented in Task 3. "
+                "No configured manifests were found."
+            )
+
+        result = validate_manifest(all_records)
+
+    config.paths.output_root.mkdir(parents=True, exist_ok=True)
+    summary_path = config.paths.output_root / "manifest_validation.json"
+
+    with open(summary_path, "w", encoding="utf-8") as f:
+        f.write(result.model_dump_json(indent=2) + "\n")
+
+    print(
+        f"[prepare] project={config.project.name} phase={config.project.phase} "
+        f"records={result.total_records} valid={result.is_valid} summary={summary_path}"
+    )
+
+    return 0 if result.is_valid else 1
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
