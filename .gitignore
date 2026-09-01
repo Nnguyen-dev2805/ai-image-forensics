@@ -38,6 +38,8 @@ env/
 /outputs/
 .cache/
 cache/
+# Keep the source package trackable despite the broad cache/ ignore above.
+!src/aiforensics/cache/
 checkpoints/
 weights/
 models/
