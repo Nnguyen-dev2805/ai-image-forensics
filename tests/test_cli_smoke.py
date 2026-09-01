@@ -37,7 +37,7 @@ def test_subcommand_prints_and_returns_zero(
     assert expected_substring in captured.out
 
     # Only placeholders print the config path explicitly now
-    if argv[0] != "prepare":
+    if argv[0] not in ("prepare", "evaluate"):
         assert SMOKE_CONFIG in captured.out
 
 

@@ -75,8 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aiforensics",
         description=(
-            "Reproducible baseline suite for AI-generated image detection "
-            "(Phase A/B)."
+            "Reproducible baseline suite for AI-generated image detection (Phase A/B)."
         ),
     )
     subparsers = parser.add_subparsers(
@@ -96,16 +95,23 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
 
     if config.project.phase == "phase_ab_smoke":
         from aiforensics.data.manifest import prepare_smoke_manifest
+
         result = prepare_smoke_manifest(config)
     else:
-        from aiforensics.data.manifest import ManifestError, load_manifest, validate_manifest
+        from aiforensics.data.manifest import (
+            ManifestError,
+            load_manifest,
+            validate_manifest,
+        )
 
         manifest_paths: list[pathlib.Path] = []
         if config.datasets.tiny_genimage.enabled:
-            manifest_paths.extend([
-                config.datasets.tiny_genimage.train_manifest,
-                config.datasets.tiny_genimage.dev_manifest,
-            ])
+            manifest_paths.extend(
+                [
+                    config.datasets.tiny_genimage.train_manifest,
+                    config.datasets.tiny_genimage.dev_manifest,
+                ]
+            )
         if config.datasets.genimage_unseen.enabled:
             manifest_paths.append(config.datasets.genimage_unseen.manifest)
         if config.datasets.synthbuster.enabled:
@@ -152,13 +158,34 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 def _cmd_evaluate(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    print(f"[evaluate] placeholder: project={config.project.name} phase={config.project.phase} config={args.config}")
+
+    from aiforensics.evaluation.metrics import (
+        discover_prediction_files,
+        evaluate_prediction_file,
+        MetricsError,
+    )
+
+    files = discover_prediction_files(config.paths.output_root)
+    count = len(files)
+
+    for p_file in files:
+        try:
+            evaluate_prediction_file(p_file)
+        except MetricsError as e:
+            print(f"Error evaluating {p_file}: {e}")
+            return 1
+
+    print(
+        f"[evaluate] project={config.project.name} phase={config.project.phase} prediction_files={count} output_root={config.paths.output_root}"
+    )
     return 0
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    print(f"[report] placeholder: project={config.project.name} phase={config.project.phase} config={args.config}")
+    print(
+        f"[report] placeholder: project={config.project.name} phase={config.project.phase} config={args.config}"
+    )
     return 0
 
 

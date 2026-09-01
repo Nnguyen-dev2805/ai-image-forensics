@@ -27,6 +27,13 @@ Read `docs/research/literature-review.md` before changing research assumptions, 
 - Run the task-specific verification command before claiming completion.
 - Report the exact commands run and whether they passed.
 
+## Linting and Formatting
+
+- Use `ruff` for Python linting and formatting.
+- Before claiming Python code is complete, run `uv run --extra dev ruff check src tests` and `uv run --extra dev ruff format --check src tests`.
+- If formatting fails, run `uv run --extra dev ruff format .`, then re-run the verification commands.
+- Keep ruff changes scoped to files touched by the current task unless the user asks for a broader cleanup.
+
 ## Project Rules
 
 - Keep importable code under `src/aiforensics/`.
@@ -42,12 +49,13 @@ Read `docs/research/literature-review.md` before changing research assumptions, 
 Before claiming Phase A/B work is complete, run:
 
 ```bash
-pytest
-aiforensics prepare --config configs/phase_ab_smoke.yaml
-aiforensics run --baseline clip_probe --config configs/phase_ab_smoke.yaml
-aiforensics evaluate --config configs/phase_ab_smoke.yaml
-aiforensics report --config configs/phase_ab_smoke.yaml
+uv run --extra dev ruff check src tests
+uv run --extra dev ruff format --check src tests
+uv run pytest
+uv run aiforensics prepare --config configs/phase_ab_smoke.yaml
+uv run aiforensics run --baseline clip_probe --config configs/phase_ab_smoke.yaml
+uv run aiforensics evaluate --config configs/phase_ab_smoke.yaml
+uv run aiforensics report --config configs/phase_ab_smoke.yaml
 ```
 
 If a command cannot run in the current environment, record the command, error, and reason.
-
