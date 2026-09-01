@@ -8,13 +8,38 @@ import subprocess
 import sys
 
 import pytest
+import yaml
 
-from aiforensics.cli.main import build_parser, main
-
+from aiforensics.cli.main import main
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SMOKE_CONFIG_PATH = REPO_ROOT / "configs" / "phase_ab_smoke.yaml"
 SMOKE_CONFIG = os.fspath(SMOKE_CONFIG_PATH)
+
+
+def _build_tmp_config(tmp_path: pathlib.Path) -> pathlib.Path:
+    cfg_path = tmp_path / "tmp_smoke.yaml"
+    with open(SMOKE_CONFIG_PATH, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    data["paths"]["output_root"] = str(tmp_path / "outputs")
+    data["paths"]["cache_root"] = str(tmp_path / "cache")
+    data["paths"]["data_root"] = str(REPO_ROOT / data["paths"]["data_root"])
+    data["paths"]["manifest_root"] = str(REPO_ROOT / data["paths"]["manifest_root"])
+    data["datasets"]["tiny_genimage"]["train_manifest"] = str(
+        REPO_ROOT / data["datasets"]["tiny_genimage"]["train_manifest"]
+    )
+    data["datasets"]["tiny_genimage"]["dev_manifest"] = str(
+        REPO_ROOT / data["datasets"]["tiny_genimage"]["dev_manifest"]
+    )
+    data["datasets"]["genimage_unseen"]["manifest"] = str(
+        REPO_ROOT / data["datasets"]["genimage_unseen"]["manifest"]
+    )
+    data["datasets"]["synthbuster"]["manifest"] = str(
+        REPO_ROOT / data["datasets"]["synthbuster"]["manifest"]
+    )
+    cfg_path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    (tmp_path / "pyproject.toml").touch()
+    return cfg_path
 
 
 @pytest.mark.parametrize(
@@ -28,29 +53,36 @@ SMOKE_CONFIG = os.fspath(SMOKE_CONFIG_PATH)
 )
 def test_subcommand_prints_and_returns_zero(
     capsys: pytest.CaptureFixture[str],
+    tmp_path: pathlib.Path,
     argv: list[str],
     expected_substring: str,
 ) -> None:
-    exit_code = main(argv)
+    cfg_path = _build_tmp_config(tmp_path)
+    patched_argv = [arg if arg != SMOKE_CONFIG else str(cfg_path) for arg in argv]
+
+    exit_code = main(patched_argv)
     captured = capsys.readouterr()
     assert exit_code == 0
     assert expected_substring in captured.out
 
-    # Only placeholders print the config path explicitly now
-    if argv[0] not in ("prepare", "evaluate"):
-        assert SMOKE_CONFIG in captured.out
+    if argv[0] not in ("prepare", "evaluate", "run"):
+        assert str(cfg_path) in captured.out
 
 
-def test_cli_prints_project_phase(capsys: pytest.CaptureFixture[str]) -> None:
-    exit_code = main(["prepare", "--config", SMOKE_CONFIG])
+def test_cli_prints_project_phase(
+    capsys: pytest.CaptureFixture[str], tmp_path: pathlib.Path
+) -> None:
+    cfg_path = _build_tmp_config(tmp_path)
+    exit_code = main(["prepare", "--config", str(cfg_path)])
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "phase_ab_smoke" in captured.out
 
 
 def test_run_with_invalid_baseline_raises_system_exit() -> None:
+    cfg_path = REPO_ROOT / "configs" / "phase_ab_smoke.yaml"
     with pytest.raises(SystemExit):
-        main(["run", "--baseline", "invalid", "--config", SMOKE_CONFIG])
+        main(["run", "--baseline", "invalid", "--config", str(cfg_path)])
 
 
 def test_module_invocation_help_exits_successfully() -> None:

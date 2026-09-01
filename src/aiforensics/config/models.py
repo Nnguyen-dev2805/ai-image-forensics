@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -61,14 +61,14 @@ class DatasetsConfig(BaseModel):
 
 class ClipProbeConfig(BaseModel):
     enabled: bool
-    model_family: str
+    model_family: Literal["synthetic", "openclip"]
     model_name: str
     pretrained: str
     classifier: str
     seeds: list[int]
     cache_embeddings: bool
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_seeds(self) -> "ClipProbeConfig":
         if self.enabled and not self.seeds:
             raise ValueError("clip_probe.seeds must not be empty when enabled is true")
@@ -101,9 +101,9 @@ class AssistedQwenConfig(BaseModel):
 class NPRConfig(BaseModel):
     enabled: bool
     repo_url: str
-    repo_commit: Optional[str]
+    repo_commit: str | None
     checkpoint_path: Path
-    checkpoint_sha256: Optional[str]
+    checkpoint_sha256: str | None
     batch_size: int = Field(gt=0)
     allow_deferred: bool
 
@@ -119,7 +119,7 @@ class LabelsConfig(BaseModel):
     negative: str
     positive: str
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_labels(self) -> "LabelsConfig":
         if self.negative != "real":
             raise ValueError("evaluation.labels.negative must be 'real'")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
-
+import sys
 from typing import Any
 
 from aiforensics.config import load_config
@@ -74,9 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Construct the top-level argparse parser for the CLI."""
     parser = argparse.ArgumentParser(
         prog="aiforensics",
-        description=(
-            "Reproducible baseline suite for AI-generated image detection (Phase A/B)."
-        ),
+        description=("Reproducible baseline suite for AI-generated image detection (Phase A/B)."),
     )
     subparsers = parser.add_subparsers(
         dest="command",
@@ -150,19 +148,109 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    print(
-        f"[run] placeholder: baseline={args.baseline} project={config.project.name} phase={config.project.phase} config={args.config}"
+
+    if args.baseline != "clip_probe":
+        print(
+            f"[run] placeholder: baseline={args.baseline} project={config.project.name} "
+            f"phase={config.project.phase} config={args.config}"
+        )
+        return 0
+
+    import shutil
+    from datetime import datetime, timezone
+
+    from aiforensics.baselines.clip_probe.adapter import ClipProbeAdapter
+    from aiforensics.runs.artifacts import (
+        RunStatus,
+        create_run_dir,
+        write_environment,
+        write_status,
     )
-    return 0
+
+    def _setup_run_dir(run_name: str | None) -> pathlib.Path:
+        run_dir = create_run_dir(config.paths.output_root, "clip_probe", run_name=run_name)
+        (run_dir / "logs.txt").touch()
+        shutil.copy2(args.config, run_dir / "config.yaml")
+        write_environment(run_dir / "environment.json")
+        return run_dir
+
+    completed = 0
+    failed = 0
+    deferred = 0
+
+    if not config.baselines.clip_probe.enabled:
+        started_at = datetime.now(timezone.utc).isoformat()
+        run_dir = _setup_run_dir(None)
+        ended_at = datetime.now(timezone.utc).isoformat()
+
+        write_status(
+            run_dir / "status.json",
+            RunStatus(
+                baseline="clip_probe",
+                status="deferred",
+                reason="clip_probe is disabled in config",
+                command=sys.argv,
+                started_at=started_at,
+                ended_at=ended_at,
+            ),
+        )
+        deferred += 1
+    else:
+        adapter = ClipProbeAdapter()
+        for seed in config.baselines.clip_probe.seeds:
+            started_at = datetime.now(timezone.utc).isoformat()
+            run_dir = _setup_run_dir(f"seed{seed}")
+
+            try:
+                result = adapter.run(
+                    config=config,
+                    output_dir=run_dir,
+                    run_id=run_dir.name,
+                    seed=seed,
+                )
+                final_status = result.status
+                final_reason = result.reason
+            except Exception as e:
+                with open(run_dir / "logs.txt", "a", encoding="utf-8") as f:
+                    f.write(f"[FAILED] Unexpected error: {e}\n")
+                final_status = "failed"
+                final_reason = f"Adapter crashed: {e}"
+
+            ended_at = datetime.now(timezone.utc).isoformat()
+            write_status(
+                run_dir / "status.json",
+                RunStatus(
+                    baseline="clip_probe",
+                    status=final_status,
+                    reason=final_reason,  # type: ignore
+                    command=sys.argv,
+                    started_at=started_at,
+                    ended_at=ended_at,
+                ),
+            )
+
+            if final_status == "completed":
+                completed += 1
+            elif final_status == "failed":
+                failed += 1
+            elif final_status == "deferred":
+                deferred += 1
+
+    print(
+        f"[run] baseline=clip_probe runs={completed + failed + deferred} completed={completed} "
+        f"failed={failed} deferred={deferred} output_root={config.paths.output_root}"
+    )
+
+    return 1 if failed > 0 else 0
 
 
 def _cmd_evaluate(args: argparse.Namespace) -> int:
     config = load_config(args.config)
 
     from aiforensics.evaluation.metrics import (
+        MetricsError,
         discover_prediction_files,
         evaluate_prediction_file,
-        MetricsError,
     )
 
     files = discover_prediction_files(config.paths.output_root)
@@ -176,7 +264,9 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
             return 1
 
     print(
-        f"[evaluate] project={config.project.name} phase={config.project.phase} prediction_files={count} output_root={config.paths.output_root}"
+        f"[evaluate] project={config.project.name} "
+        f"phase={config.project.phase} prediction_files={count} "
+        f"output_root={config.paths.output_root}"
     )
     return 0
 
@@ -184,7 +274,8 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
 def _cmd_report(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     print(
-        f"[report] placeholder: project={config.project.name} phase={config.project.phase} config={args.config}"
+        f"[report] placeholder: project={config.project.name} "
+        f"phase={config.project.phase} config={args.config}"
     )
     return 0
 
