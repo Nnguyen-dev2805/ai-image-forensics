@@ -115,7 +115,6 @@ def test_validate_prediction_record_rejects_invalid_model_name():
         validate_prediction_record(record_dict)
 
 
-
 def test_write_and_load_roundtrip_jsonl(tmp_path):
     records = [
         PredictionRecord(
@@ -125,7 +124,7 @@ def test_write_and_load_roundtrip_jsonl(tmp_path):
             score_fake=0.9,
             model_name="qwen_vl",
             source="src",
-            parse_status="parsed"
+            parse_status="parsed",
         ),
         PredictionRecord(
             sample_id="id2",
@@ -134,11 +133,12 @@ def test_write_and_load_roundtrip_jsonl(tmp_path):
             score_fake=None,
             model_name="clip_probe",
             source="src",
-        )
+        ),
     ]
     out_path = tmp_path / "preds.jsonl"
 
     from aiforensics.schemas.predictions import load_predictions, write_predictions
+
     write_predictions(records, out_path)
 
     loaded = load_predictions(out_path)
@@ -152,6 +152,7 @@ def test_write_and_load_roundtrip_jsonl(tmp_path):
     raw_lines = out_path.read_text().splitlines()
     assert len(raw_lines) == 2
     import json
+
     parsed0 = json.loads(raw_lines[0])
     parsed1 = json.loads(raw_lines[1])
     assert "parse_status" in parsed0
@@ -160,25 +161,37 @@ def test_write_and_load_roundtrip_jsonl(tmp_path):
 
 def test_load_predictions_missing_file(tmp_path):
     from aiforensics.schemas.predictions import load_predictions
+
     with pytest.raises(PredictionError, match="missing"):
         load_predictions(tmp_path / "does_not_exist.jsonl")
 
 
 def test_load_predictions_invalid_json(tmp_path):
     from aiforensics.schemas.predictions import load_predictions
+
     out_path = tmp_path / "bad.jsonl"
-    ok_json = '{"sample_id":"id1","label_true":"real","label_pred":"real","score_fake":0.5,"model_name":"clip_probe","source":"s"}'
-    out_path.write_text(f'{ok_json}\n{{bad_json}}\n')
+    ok_json = (
+        '{"sample_id":"id1","label_true":"real","label_pred":"real",'
+        '"score_fake":0.5,"model_name":"clip_probe","source":"s"}'
+    )
+    out_path.write_text(f"{ok_json}\n{{bad_json}}\n")
     with pytest.raises(PredictionError, match="Invalid JSON on line 2 in"):
         load_predictions(out_path)
 
 
 def test_load_predictions_invalid_record_data(tmp_path):
     from aiforensics.schemas.predictions import load_predictions
+
     out_path = tmp_path / "bad_data.jsonl"
     # line 1 is ok, line 2 is bad
-    ok_json = '{"sample_id":"id1","label_true":"real","label_pred":"real","score_fake":0.5,"model_name":"clip_probe","source":"s"}'
-    bad_json = '{"sample_id":"id2","label_true":"wrong_label","label_pred":"real","score_fake":0.5,"model_name":"clip_probe","source":"s"}'
+    ok_json = (
+        '{"sample_id":"id1","label_true":"real","label_pred":"real",'
+        '"score_fake":0.5,"model_name":"clip_probe","source":"s"}'
+    )
+    bad_json = (
+        '{"sample_id":"id2","label_true":"wrong_label","label_pred":"real",'
+        '"score_fake":0.5,"model_name":"clip_probe","source":"s"}'
+    )
     out_path.write_text(f"{ok_json}\n{bad_json}\n")
     with pytest.raises(PredictionError, match="line 2"):
         load_predictions(out_path)
@@ -195,6 +208,7 @@ def test_load_predictions_invalid_record_data(tmp_path):
     with pytest.raises(PredictionError, match="Field 'checksum'"):
         validate_prediction_record(record_dict)
 
+
 def test_validate_predictions():
     from aiforensics.schemas.predictions import PredictionRecord, validate_predictions
 
@@ -208,7 +222,7 @@ def test_validate_predictions():
             source="s1",
         ),
         PredictionRecord(
-            sample_id="id1", # duplicate
+            sample_id="id1",  # duplicate
             label_true="fake",
             label_pred="fake",
             score_fake=0.9,
@@ -223,7 +237,7 @@ def test_validate_predictions():
             score_fake=0.1,
             model_name="clip_probe",
             source="s1",
-            parse_status="parsed" # Invalid for non-mllm
+            parse_status="parsed",  # Invalid for non-mllm
         ),
         PredictionRecord(
             sample_id="id3",
@@ -235,13 +249,15 @@ def test_validate_predictions():
             prompt_id="p1",
             raw_output="raw",
             explanation="exp",
-            parse_status="parsed"
-        )
+            parse_status="parsed",
+        ),
     ]
 
     manifest_ids = {"id1", "id2", "id3", "id4"}
 
-    result = validate_predictions(records, manifest_sample_ids=manifest_ids, require_mllm_fields=True)
+    result = validate_predictions(
+        records, manifest_sample_ids=manifest_ids, require_mllm_fields=True
+    )
 
     assert not result.is_valid
     assert result.total_records == 4
@@ -264,6 +280,7 @@ def test_validate_predictions():
 
 def test_validate_predictions_manifest_ids():
     from aiforensics.schemas.predictions import PredictionRecord, validate_predictions
+
     records = [
         PredictionRecord(
             sample_id="id_not_manifest",
@@ -280,6 +297,7 @@ def test_validate_predictions_manifest_ids():
     assert "id_not_manifest" in result.missing_manifest_sample_ids
     assert any("not found in manifest" in err for err in result.errors)
 
+
 def test_validate_prediction_record_rejects_missing_score_fake():
     record_dict = {
         "sample_id": "test",
@@ -291,17 +309,24 @@ def test_validate_prediction_record_rejects_missing_score_fake():
     with pytest.raises(PredictionError, match="Field 'score_fake'"):
         validate_prediction_record(record_dict)
 
+
 def test_load_predictions_blank_line_raises_error(tmp_path):
     from aiforensics.schemas.predictions import load_predictions
+
     out_path = tmp_path / "blank.jsonl"
     # A file with a blank line in the middle
-    ok_json = '{"sample_id":"id1","label_true":"real","label_pred":"real","score_fake":0.5,"model_name":"clip_probe","source":"s"}'
+    ok_json = (
+        '{"sample_id":"id1","label_true":"real","label_pred":"real",'
+        '"score_fake":0.5,"model_name":"clip_probe","source":"s"}'
+    )
     out_path.write_text(f"{ok_json}\n\n{ok_json}\n")
     with pytest.raises(PredictionError, match="blank line not allowed"):
         load_predictions(out_path)
 
+
 def test_load_predictions_empty_file_returns_empty_list(tmp_path):
     from aiforensics.schemas.predictions import load_predictions
+
     out_path = tmp_path / "empty.jsonl"
     out_path.write_text("")
     assert load_predictions(out_path) == []

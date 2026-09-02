@@ -73,12 +73,22 @@ def load_config(path: Path | str) -> AppConfig:
         with open(config_path, encoding="utf-8") as f:
             config_dict = yaml.safe_load(f)
     except yaml.YAMLError as exc:
-        raise ConfigError(f"Invalid YAML structure in {config_path}: {exc}")
+        raise ConfigError(f"Invalid YAML structure in {config_path}: {exc}") from exc
 
     if not isinstance(config_dict, dict):
-        raise ConfigError(f"Config file {config_path} does not contain a valid dictionary structure")
+        raise ConfigError(
+            f"Config file {config_path} does not contain a valid dictionary structure"
+        )
 
-    required_sections = ["project", "paths", "runtime", "datasets", "baselines", "evaluation", "report"]
+    required_sections = [
+        "project",
+        "paths",
+        "runtime",
+        "datasets",
+        "baselines",
+        "evaluation",
+        "report",
+    ]
     for section in required_sections:
         if section not in config_dict:
             raise ConfigError(f"Missing required section in {config_path}: {section}")
@@ -94,4 +104,6 @@ def load_config(path: Path | str) -> AppConfig:
             loc_str = ".".join([str(loc) for loc in err["loc"]])
             error_msgs.append(f"Field '{loc_str}': {err['msg']}")
 
-        raise ConfigError(f"Config validation error in {config_path}: " + " | ".join(error_msgs))
+        raise ConfigError(
+            f"Config validation error in {config_path}: " + " | ".join(error_msgs)
+        ) from exc

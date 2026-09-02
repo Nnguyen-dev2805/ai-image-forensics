@@ -11,6 +11,7 @@ from aiforensics.config.models import AppConfig
 
 class ManifestError(ValueError):
     """Exception raised for manifest structural errors (e.g. missing columns, invalid CSV)."""
+
     pass
 
 
@@ -94,10 +95,10 @@ def load_manifest(path: Path | str, *, data_root: Path | None = None) -> list[Ma
                         row["path"] = str((base_dir / p).resolve())
                     records.append(ManifestRecord(**row))
                 except Exception as e:
-                    raise ManifestError(f"Row {i} is invalid: {e}")
+                    raise ManifestError(f"Row {i} is invalid: {e}") from e
 
     except csv.Error as e:
-        raise ManifestError(f"Failed to parse CSV: {e}")
+        raise ManifestError(f"Failed to parse CSV: {e}") from e
 
     return records
 
@@ -122,7 +123,7 @@ def write_manifest(records: list[ManifestRecord], path: Path | str) -> None:
             # Pydantic's model_dump treats Path as strings or we can serialize it
             row = record.model_dump(exclude_none=True)
             # Ensure path is a string exactly as it was provided (or just str(path))
-            # The spec says: "write_manifest() should write path values as strings exactly as stored in the records."
+            # The spec says write_manifest() writes path values exactly as stored.
             row["path"] = str(record.path)
             writer.writerow(row)
 
@@ -140,7 +141,7 @@ def validate_manifest(records: list[ManifestRecord]) -> ManifestValidationResult
             missing_files=[],
             checksum_mismatches=[],
             errors=["Manifest contains no records."],
-            warnings=[]
+            warnings=[],
         )
 
     records_by_label: dict[str, int] = defaultdict(int)
@@ -160,7 +161,7 @@ def validate_manifest(records: list[ManifestRecord]) -> ManifestValidationResult
     # Labels per split checker
     labels_per_split: dict[str, set] = defaultdict(set)
 
-    for i, rec in enumerate(records):
+    for rec in records:
         # Update metrics
         records_by_label[rec.label] += 1
         records_by_split[rec.split] += 1
@@ -187,7 +188,10 @@ def validate_manifest(records: list[ManifestRecord]) -> ManifestValidationResult
                 actual_checksum = compute_sha256(rec.path)
                 if actual_checksum != rec.checksum:
                     checksum_mismatches.append(str(rec.path))
-                    errors.append(f"Checksum mismatch for {rec.path}: expected {rec.checksum}, got {actual_checksum}")
+                    errors.append(
+                        f"Checksum mismatch for {rec.path}: "
+                        f"expected {rec.checksum}, got {actual_checksum}"
+                    )
             except Exception as e:
                 errors.append(f"Failed to read file to compute checksum for {rec.path}: {e}")
 
@@ -201,7 +205,11 @@ def validate_manifest(records: list[ManifestRecord]) -> ManifestValidationResult
     for split, count in records_by_split.items():
         if count >= 2:
             if len(labels_per_split[split]) < 2:
-                errors.append(f"Split '{split}' has {count} records but contains only label(s): {list(labels_per_split[split])}. Must contain both 'real' and 'fake'.")
+                split_labels = list(labels_per_split[split])
+                errors.append(
+                    f"Split '{split}' has {count} records but contains only "
+                    f"label(s): {split_labels}. Must contain both 'real' and 'fake'."
+                )
 
     is_valid = len(errors) == 0
 
@@ -216,12 +224,12 @@ def validate_manifest(records: list[ManifestRecord]) -> ManifestValidationResult
         missing_files=missing_files,
         checksum_mismatches=checksum_mismatches,
         errors=errors,
-        warnings=warnings
+        warnings=warnings,
     )
 
 
 def prepare_smoke_manifest(config: AppConfig) -> ManifestValidationResult:
-    """Creates deterministic tiny smoke fixtures and writes smoke manifests. Returns validation result."""
+    """Create deterministic tiny smoke fixtures and write smoke manifests."""
     from PIL import Image
 
     data_root = config.paths.data_root
@@ -236,7 +244,7 @@ def prepare_smoke_manifest(config: AppConfig) -> ManifestValidationResult:
         ("real_0001", "real_0001.png", "real", (255, 0, 0)),
         ("real_0002", "real_0002.png", "real", (0, 255, 0)),
         ("fake_0001", "fake_0001.png", "fake", (0, 0, 255)),
-        ("fake_0002", "fake_0002.png", "fake", (255, 255, 0))
+        ("fake_0002", "fake_0002.png", "fake", (255, 255, 0)),
     ]
 
     records = []
@@ -247,11 +255,9 @@ def prepare_smoke_manifest(config: AppConfig) -> ManifestValidationResult:
             img = Image.new("RGB", (4, 4), color=color)
             img.save(img_path)
 
-        # For smoke paths, spec states: paths in csv files should be relative to config.paths.data_root.
-        # But our ManifestRecord expects a Path (which will be coercible to absolute or relative).
-        # We store it as relative in the model for writing, but compute_sha256 expects an actual file existence if we try to parse it as absolute.
-        # However, for `prepare_smoke_manifest`, we are constructing them directly.
-
+        # For smoke paths, paths in csv files should be relative to
+        # config.paths.data_root. We store the relative path in the model for
+        # writing; load_manifest resolves it against data_root for validation.
         csum = compute_sha256(img_path)
 
         split = "train" if "0001" in sample_id else "dev"
@@ -263,7 +269,7 @@ def prepare_smoke_manifest(config: AppConfig) -> ManifestValidationResult:
             label=label,
             source="smoke",
             split=split,
-            checksum=csum
+            checksum=csum,
         )
         records.append(record)
 
@@ -273,10 +279,8 @@ def prepare_smoke_manifest(config: AppConfig) -> ManifestValidationResult:
     write_manifest(train_records, manifest_root / "smoke_train.csv")
     write_manifest(dev_records, manifest_root / "smoke_dev.csv")
 
-    # Before validation, we should load it properly or validate as-is?
-    # validate_manifest checks file existence. If path is relative, it will fail unless cwd is correct.
-    # We should convert the path to absolute for validation to succeed, OR run load_manifest.
-    # Let's run load_manifest to properly inject absolute paths for validation.
+    # Before validation, load the manifests so relative paths resolve
+    # against data_root and checksum validation sees absolute paths.
 
     validate_train = load_manifest(manifest_root / "smoke_train.csv", data_root=data_root)
     validate_dev = load_manifest(manifest_root / "smoke_dev.csv", data_root=data_root)

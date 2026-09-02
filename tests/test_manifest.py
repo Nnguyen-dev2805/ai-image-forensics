@@ -29,6 +29,7 @@ def tmp_image(tmp_path: Path) -> Path:
 def test_compute_sha256(tmp_image: Path):
     # known SHA-256 for "dummy image data"
     import hashlib
+
     expected_hex = hashlib.sha256(b"dummy image data").hexdigest()
 
     actual_hex = compute_sha256(tmp_image)
@@ -54,7 +55,7 @@ def test_write_and_load_roundtrip(tmp_path: Path, tmp_image: Path):
             source="test_source",
             split="dev",
             checksum=csum,
-        )
+        ),
     ]
     manifest_csv = tmp_path / "manifest.csv"
 
@@ -75,7 +76,7 @@ def test_load_manifest_missing_columns(tmp_path: Path):
     manifest_csv = tmp_path / "bad_manifest.csv"
     with open(manifest_csv, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["sample_id", "path", "label"]) # Missing source, split, checksum
+        writer.writerow(["sample_id", "path", "label"])  # Missing source, split, checksum
         writer.writerow(["file1", "img.png", "real"])
 
     with pytest.raises(ManifestError, match="Missing required columns"):
@@ -99,8 +100,10 @@ def test_validate_manifest_duplicate_sample_id(tmp_path: Path, tmp_image: Path):
 
 def test_validate_manifest_duplicate_checksum(tmp_path: Path, tmp_image: Path):
     csum = compute_sha256(tmp_image)
-    # create another file with same content or just use same file for different logical samples to trigger checksum duplicate
-    # the unique constraint usually implies images are unique, though here duplicate files have same checksum
+    # create another file with same content or just use same file for
+    # different logical samples to trigger checksum duplicate
+    # the unique constraint usually implies images are unique, though here
+    # duplicate files have same checksum
     img2 = tmp_path / "img2.png"
     img2.write_bytes(b"dummy image data")
 
@@ -195,11 +198,15 @@ def test_cli_prepare_smoke_writes_json():
     # This invokes the actual CLI
     result = subprocess.run(
         [
-            sys.executable, "-m", "aiforensics.cli.main",
-            "prepare", "--config", "configs/phase_ab_smoke.yaml"
+            sys.executable,
+            "-m",
+            "aiforensics.cli.main",
+            "prepare",
+            "--config",
+            "configs/phase_ab_smoke.yaml",
         ],
         capture_output=True,
-        text=True
+        text=True,
     )
 
     # It should succeed

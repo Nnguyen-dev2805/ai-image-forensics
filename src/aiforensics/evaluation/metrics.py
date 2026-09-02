@@ -108,9 +108,7 @@ def compute_classification_metrics(
 
     return {
         "accuracy": float(accuracy) if accuracy is not None else None,
-        "balanced_accuracy": float(balanced_accuracy)
-        if balanced_accuracy is not None
-        else None,
+        "balanced_accuracy": float(balanced_accuracy) if balanced_accuracy is not None else None,
         "precision": float(precision) if precision is not None else None,
         "recall": float(recall) if recall is not None else None,
         "f1": float(f1) if f1 is not None else None,
@@ -185,7 +183,7 @@ def evaluate_prediction_file(
     try:
         records = load_predictions(p_path)
     except PredictionError as e:
-        raise MetricsError(f"Failed to load predictions: {e}")
+        raise MetricsError(f"Failed to load predictions: {e}") from e
 
     # validate
     res = validate_predictions(records)

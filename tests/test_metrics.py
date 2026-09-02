@@ -156,9 +156,7 @@ def test_evaluate_prediction_file(tmp_path):
 def test_evaluate_prediction_file_fails_validation(tmp_path):
     p_file = tmp_path / "predictions.jsonl"
     r1 = prediction("r1", "real", "real", 0.1).model_dump(mode="json")
-    r2 = prediction("r1", "real", "real", 0.1).model_dump(
-        mode="json"
-    )  # duplicate sample_id
+    r2 = prediction("r1", "real", "real", 0.1).model_dump(mode="json")  # duplicate sample_id
     p_file.write_text(json.dumps(r1) + "\n" + json.dumps(r2) + "\n")
 
     with pytest.raises(MetricsError, match="Prediction validation failed"):

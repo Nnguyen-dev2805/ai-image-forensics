@@ -29,9 +29,7 @@ class PredictionRecord(BaseModel):
     prompt_id: str | None = None
     raw_output: str | None = None
     explanation: str | None = None
-    parse_status: Literal["parsed", "recovered", "failed", "not_applicable"] | None = (
-        None
-    )
+    parse_status: Literal["parsed", "recovered", "failed", "not_applicable"] | None = None
 
 
 class PredictionValidationResult(BaseModel):
@@ -55,7 +53,7 @@ def validate_prediction_record(record: Mapping[str, Any]) -> PredictionRecord:
         err = e.errors()[0]
         loc = err["loc"][0] if err["loc"] else "unknown"
         msg = err["msg"]
-        raise PredictionError(f"Invalid prediction record: Field '{loc}': {msg}")
+        raise PredictionError(f"Invalid prediction record: Field '{loc}': {msg}") from e
 
 
 def write_predictions(records: Iterable[PredictionRecord], path: Path | str) -> None:
@@ -67,9 +65,7 @@ def write_predictions(records: Iterable[PredictionRecord], path: Path | str) -> 
             # Pydantic's model_dump with mode='json' serializes Path to string natively
             row = record.model_dump(mode="json")
             # Exclude None values except for required fields like score_fake
-            row_clean = {
-                k: v for k, v in row.items() if v is not None or k == "score_fake"
-            }
+            row_clean = {k: v for k, v in row.items() if v is not None or k == "score_fake"}
             f.write(json.dumps(row_clean) + "\n")
 
 
@@ -90,14 +86,12 @@ def load_predictions(path: Path | str) -> list[PredictionRecord]:
 
     for i, line in enumerate(lines, start=1):
         if not line.strip():
-            raise PredictionError(
-                f"Invalid JSON on line {i} in {p}: blank line not allowed"
-            )
+            raise PredictionError(f"Invalid JSON on line {i} in {p}: blank line not allowed")
 
         try:
             row = json.loads(line)
         except json.JSONDecodeError as e:
-            raise PredictionError(f"Invalid JSON on line {i} in {p}: {e}")
+            raise PredictionError(f"Invalid JSON on line {i} in {p}: {e}") from e
 
         try:
             record = PredictionRecord(**row)
@@ -108,7 +102,7 @@ def load_predictions(path: Path | str) -> list[PredictionRecord]:
             msg = err["msg"]
             raise PredictionError(
                 f"Invalid prediction record on line {i} in {p}: Field '{loc}': {msg}"
-            )
+            ) from e
 
     return records
 
@@ -148,10 +142,7 @@ def validate_predictions(
         else:
             seen_ids.add(record.sample_id)
 
-        if (
-            manifest_sample_ids is not None
-            and record.sample_id not in manifest_sample_ids
-        ):
+        if manifest_sample_ids is not None and record.sample_id not in manifest_sample_ids:
             missing_manifest_sample_ids.append(record.sample_id)
             errors.append(
                 f"Prediction for sample_id '{record.sample_id}' not found in manifest_sample_ids."
@@ -169,13 +160,16 @@ def validate_predictions(
                 missing.append("parse_status")
             if missing:
                 errors.append(
-                    f"MLLM fields missing for model '{record.model_name}' (sample {record.sample_id}): {missing}"
+                    f"MLLM fields missing for model '{record.model_name}' "
+                    f"(sample {record.sample_id}): {missing}"
                 )
 
         if record.model_name not in mllm_models:
             if record.parse_status not in (None, "not_applicable"):
                 errors.append(
-                    f"Model '{record.model_name}' (sample {record.sample_id}) has invalid parse_status '{record.parse_status}'. Should be None or 'not_applicable'."
+                    f"Model '{record.model_name}' (sample {record.sample_id}) has "
+                    f"invalid parse_status '{record.parse_status}'. "
+                    "Should be None or 'not_applicable'."
                 )
 
     return PredictionValidationResult(
