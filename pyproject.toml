@@ -24,6 +24,12 @@ dev = [
 clip = [
     "open_clip_torch",
 ]
+qwen = [
+    "torch",
+    "transformers",
+    "accelerate",
+    "qwen-vl-utils",
+]
 
 [project.scripts]
 aiforensics = "aiforensics.cli.main:main"

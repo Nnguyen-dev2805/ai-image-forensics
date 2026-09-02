@@ -47,6 +47,7 @@ def _build_tmp_config(tmp_path: pathlib.Path) -> pathlib.Path:
     [
         (["prepare", "--config", SMOKE_CONFIG], "prepare"),
         (["run", "--baseline", "clip_probe", "--config", SMOKE_CONFIG], "clip_probe"),
+        (["run", "--baseline", "qwen_vl", "--config", SMOKE_CONFIG], "qwen_vl"),
         (["evaluate", "--config", SMOKE_CONFIG], "evaluate"),
         (["report", "--config", SMOKE_CONFIG], "report"),
     ],
@@ -106,3 +107,54 @@ def test_module_invocation_help_exits_successfully() -> None:
     assert result.returncode == 0
     assert "usage:" in result.stdout
     assert "COMMAND" in result.stdout
+
+
+def test_run_qwen_vl_artifacts(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Need to patch qwen dependencies to make it 'deferred' or 'completed' and check run_dir
+    import importlib.util
+
+    cfg_path = _build_tmp_config(tmp_path)
+
+    original_find_spec = importlib.util.find_spec
+
+    def mock_find_spec(name, *args, **kwargs):
+        if name in ("torch", "transformers", "qwen_vl_utils", "accelerate"):
+            return "mocked_spec"
+        return original_find_spec(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, "find_spec", mock_find_spec)
+
+    # We will mock the adapter run itself for "completed" run to verify artifacts are placed
+    from aiforensics.baselines.base import RunResult
+    from aiforensics.baselines.qwen_vl.adapter import QwenVLAdapter
+
+    def mock_run(self, config, output_dir, run_id):
+        (output_dir / "predictions.jsonl").touch()
+        (output_dir / "logs.txt").touch()
+        return RunResult(
+            baseline="qwen_vl",
+            run_id=run_id,
+            status="completed",
+            output_dir=output_dir,
+            prediction_path=output_dir / "predictions.jsonl",
+            log_path=output_dir / "logs.txt",
+            environment_path=output_dir / "environment.json",
+            status_path=output_dir / "status.json",
+            reason=None,
+        )
+
+    monkeypatch.setattr(QwenVLAdapter, "run", mock_run)
+
+    main(["prepare", "--config", str(cfg_path)])
+    exit_code = main(["run", "--baseline", "qwen_vl", "--config", str(cfg_path)])
+    assert exit_code == 0
+
+    # Check if run_dir contains predictions.jsonl
+    outputs_dir = tmp_path / "outputs"
+    run_dirs = list(outputs_dir.glob("*_qwen_vl"))
+    assert len(run_dirs) == 1
+    run_dir = run_dirs[0]
+
+    assert (run_dir / "predictions.jsonl").exists()
+    assert (run_dir / "logs.txt").exists()
+    assert not (outputs_dir / "predictions.jsonl").exists()
