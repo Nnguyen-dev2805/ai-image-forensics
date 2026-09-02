@@ -2,7 +2,7 @@ import csv
 import hashlib
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,13 +37,13 @@ class ManifestRecord(BaseModel):
     checksum: str = Field(pattern=r"^[a-fA-F0-9]{64}$")
 
     # Optional fields
-    dataset: Optional[str] = None
-    generator: Optional[str] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
-    mime_type: Optional[str] = None
-    license: Optional[str] = None
-    notes: Optional[str] = None
+    dataset: str | None = None
+    generator: str | None = None
+    width: int | None = None
+    height: int | None = None
+    mime_type: str | None = None
+    license: str | None = None
+    notes: str | None = None
 
 
 def compute_sha256(path: Path) -> str:
@@ -58,7 +58,7 @@ def compute_sha256(path: Path) -> str:
     return sha256.hexdigest()
 
 
-def load_manifest(path: Union[Path, str], *, data_root: Optional[Path] = None) -> List[ManifestRecord]:
+def load_manifest(path: Path | str, *, data_root: Path | None = None) -> list[ManifestRecord]:
     manifest_path = Path(path)
     if not manifest_path.exists():
         raise ManifestError(f"Manifest file missing: {manifest_path}")
@@ -70,7 +70,7 @@ def load_manifest(path: Union[Path, str], *, data_root: Optional[Path] = None) -
     base_dir = data_root if data_root is not None else manifest_path.parent
 
     try:
-        with open(manifest_path, "r", encoding="utf-8", newline="") as f:
+        with open(manifest_path, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
 
             if reader.fieldnames is None:
@@ -102,7 +102,7 @@ def load_manifest(path: Union[Path, str], *, data_root: Optional[Path] = None) -
     return records
 
 
-def write_manifest(records: List[ManifestRecord], path: Union[Path, str]) -> None:
+def write_manifest(records: list[ManifestRecord], path: Path | str) -> None:
     manifest_path = Path(path)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -127,7 +127,7 @@ def write_manifest(records: List[ManifestRecord], path: Union[Path, str]) -> Non
             writer.writerow(row)
 
 
-def validate_manifest(records: List[ManifestRecord]) -> ManifestValidationResult:
+def validate_manifest(records: list[ManifestRecord]) -> ManifestValidationResult:
     if not records:
         return ManifestValidationResult(
             is_valid=False,
@@ -143,22 +143,22 @@ def validate_manifest(records: List[ManifestRecord]) -> ManifestValidationResult
             warnings=[]
         )
 
-    records_by_label: Dict[str, int] = defaultdict(int)
-    records_by_split: Dict[str, int] = defaultdict(int)
-    records_by_source: Dict[str, int] = defaultdict(int)
+    records_by_label: dict[str, int] = defaultdict(int)
+    records_by_split: dict[str, int] = defaultdict(int)
+    records_by_source: dict[str, int] = defaultdict(int)
 
-    duplicate_sample_ids: List[str] = []
-    duplicate_checksums: Dict[str, List[str]] = defaultdict(list)
-    missing_files: List[str] = []
-    checksum_mismatches: List[str] = []
-    errors: List[str] = []
-    warnings: List[str] = []
+    duplicate_sample_ids: list[str] = []
+    duplicate_checksums: dict[str, list[str]] = defaultdict(list)
+    missing_files: list[str] = []
+    checksum_mismatches: list[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     seen_ids = set()
-    checksum_to_ids: Dict[str, List[str]] = defaultdict(list)
+    checksum_to_ids: dict[str, list[str]] = defaultdict(list)
 
     # Labels per split checker
-    labels_per_split: Dict[str, set] = defaultdict(set)
+    labels_per_split: dict[str, set] = defaultdict(set)
 
     for i, rec in enumerate(records):
         # Update metrics

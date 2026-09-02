@@ -1,4 +1,3 @@
-from pathlib import Path
 
 import pytest
 import yaml
@@ -45,7 +44,7 @@ def test_missing_top_level_section(tmp_path):
     # Make a config missing "paths"
     bad_config = tmp_path / "bad.yaml"
     (tmp_path / "pyproject.toml").touch()
-    with open(SMOKE_CONFIG, "r") as f:
+    with open(SMOKE_CONFIG) as f:
         data = yaml.safe_load(f)
     if "paths" in data:
         del data["paths"]
@@ -60,7 +59,7 @@ def test_missing_top_level_section(tmp_path):
 def test_invalid_numeric_value(tmp_path):
     bad_config = tmp_path / "bad.yaml"
     (tmp_path / "pyproject.toml").touch()
-    with open(SMOKE_CONFIG, "r") as f:
+    with open(SMOKE_CONFIG) as f:
         data = yaml.safe_load(f)
 
     data["runtime"]["batch_size"] = 0

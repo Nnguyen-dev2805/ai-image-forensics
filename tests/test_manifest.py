@@ -211,7 +211,7 @@ def test_cli_prepare_smoke_writes_json():
     summary_path = config.paths.output_root / "manifest_validation.json"
 
     assert summary_path.is_file()
-    with open(summary_path, "r", encoding="utf-8") as f:
+    with open(summary_path, encoding="utf-8") as f:
         data = json.load(f)
         assert data["is_valid"] is True
         assert data["total_records"] == 4

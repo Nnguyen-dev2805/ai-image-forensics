@@ -48,6 +48,7 @@ def _build_tmp_config(tmp_path: pathlib.Path) -> pathlib.Path:
         (["prepare", "--config", SMOKE_CONFIG], "prepare"),
         (["run", "--baseline", "clip_probe", "--config", SMOKE_CONFIG], "clip_probe"),
         (["run", "--baseline", "qwen_vl", "--config", SMOKE_CONFIG], "qwen_vl"),
+        (["run", "--baseline", "assisted_qwen", "--config", SMOKE_CONFIG], "assisted_qwen"),
         (["evaluate", "--config", SMOKE_CONFIG], "evaluate"),
         (["report", "--config", SMOKE_CONFIG], "report"),
     ],

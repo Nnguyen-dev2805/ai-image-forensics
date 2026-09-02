@@ -1,10 +1,10 @@
-import pytest
-from pathlib import Path
 import json
+from pathlib import Path
 from typing import Literal
 
+import pytest
+
 from aiforensics.cli.main import main
-from aiforensics.schemas.predictions import PredictionRecord
 from aiforensics.evaluation.metrics import (
     METRIC_NAMES,
     MetricsError,
@@ -14,6 +14,7 @@ from aiforensics.evaluation.metrics import (
     evaluate_prediction_file,
     write_metrics_outputs,
 )
+from aiforensics.schemas.predictions import PredictionRecord
 
 
 def prediction(

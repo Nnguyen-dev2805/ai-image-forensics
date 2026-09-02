@@ -1,11 +1,11 @@
 import pytest
-from pydantic import ValidationError
 
 from aiforensics.schemas.predictions import (
     PredictionError,
     PredictionRecord,
     validate_prediction_record,
 )
+
 
 def test_validate_prediction_record_valid_clip():
     record_dict = {
@@ -138,7 +138,7 @@ def test_write_and_load_roundtrip_jsonl(tmp_path):
     ]
     out_path = tmp_path / "preds.jsonl"
 
-    from aiforensics.schemas.predictions import write_predictions, load_predictions
+    from aiforensics.schemas.predictions import load_predictions, write_predictions
     write_predictions(records, out_path)
 
     loaded = load_predictions(out_path)
@@ -196,7 +196,7 @@ def test_load_predictions_invalid_record_data(tmp_path):
         validate_prediction_record(record_dict)
 
 def test_validate_predictions():
-    from aiforensics.schemas.predictions import validate_predictions, PredictionRecord
+    from aiforensics.schemas.predictions import PredictionRecord, validate_predictions
 
     records = [
         PredictionRecord(
@@ -263,7 +263,7 @@ def test_validate_predictions():
 
 
 def test_validate_predictions_manifest_ids():
-    from aiforensics.schemas.predictions import validate_predictions, PredictionRecord
+    from aiforensics.schemas.predictions import PredictionRecord, validate_predictions
     records = [
         PredictionRecord(
             sample_id="id_not_manifest",

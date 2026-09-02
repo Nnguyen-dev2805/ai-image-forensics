@@ -1,10 +1,11 @@
 import copy
-import yaml
 from pathlib import Path
-from typing import Union, Dict, Any
+from typing import Any
+
+import yaml
+from pydantic import ValidationError
 
 from aiforensics.config.models import AppConfig
-from pydantic import ValidationError
 
 
 class ConfigError(ValueError):
@@ -30,7 +31,7 @@ def _resolve_path_value(val: Any, root_dir: Path) -> Any:
     return str(p) if p.is_absolute() else str(root_dir / p)
 
 
-def resolve_paths(config_dict: Dict[str, Any], root_dir: Path) -> Dict[str, Any]:
+def resolve_paths(config_dict: dict[str, Any], root_dir: Path) -> dict[str, Any]:
     """Returns a new config dictionary with relative paths resolved to absolute paths."""
     resolved = copy.deepcopy(config_dict)
 
@@ -63,13 +64,13 @@ def resolve_paths(config_dict: Dict[str, Any], root_dir: Path) -> Dict[str, Any]
     return resolved
 
 
-def load_config(path: Union[Path, str]) -> AppConfig:
+def load_config(path: Path | str) -> AppConfig:
     config_path = Path(path)
     if not config_path.exists():
         raise ConfigError(f"Config file missing: {config_path}")
 
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config_dict = yaml.safe_load(f)
     except yaml.YAMLError as exc:
         raise ConfigError(f"Invalid YAML structure in {config_path}: {exc}")

@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Iterable, Literal, Mapping
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -81,7 +82,7 @@ def load_predictions(path: Path | str) -> list[PredictionRecord]:
         return []
 
     records = []
-    with open(p, "r", encoding="utf-8") as f:
+    with open(p, encoding="utf-8") as f:
         lines = f.read().splitlines()
 
     if not lines:
