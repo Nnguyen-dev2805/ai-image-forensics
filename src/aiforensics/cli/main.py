@@ -149,13 +149,6 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(args.config)
 
-    if args.baseline in ("npr",):
-        print(
-            f"[run] placeholder: baseline={args.baseline} project={config.project.name} "
-            f"phase={config.project.phase} config={args.config}"
-        )
-        return 0
-
     import shutil
     from datetime import datetime, timezone
 
@@ -279,7 +272,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
             failed += 1
         elif final_status == "deferred":
             deferred += 1
-
     elif args.baseline == "assisted_qwen":
         from aiforensics.baselines.assisted_qwen.adapter import AssistedQwenAdapter
 
@@ -307,6 +299,48 @@ def _cmd_run(args: argparse.Namespace) -> int:
             run_dir / "status.json",
             RunStatus(
                 baseline="assisted_qwen",
+                status=final_status,
+                reason=final_reason,  # type: ignore
+                command=sys.argv,
+                started_at=started_at,
+                ended_at=ended_at,
+            ),
+        )
+
+        if final_status == "completed":
+            completed += 1
+        elif final_status == "failed":
+            failed += 1
+        elif final_status == "deferred":
+            deferred += 1
+
+    elif args.baseline == "npr":
+        from aiforensics.baselines.npr.adapter import NPRAdapter
+
+        adapter = NPRAdapter()
+        started_at = datetime.now(timezone.utc).isoformat()
+
+        run_dir = _setup_run_dir("npr", None)
+
+        try:
+            result = adapter.run(
+                config=config,
+                output_dir=run_dir,
+                run_id=run_dir.name,
+            )
+            final_status = result.status
+            final_reason = getattr(result, "reason", "")
+        except Exception as e:
+            with open(run_dir / "logs.txt", "a", encoding="utf-8") as f:
+                f.write(f"[FAILED] Unexpected error: {e}\n")
+            final_status = "failed"
+            final_reason = f"Adapter crashed: {e}"
+
+        ended_at = datetime.now(timezone.utc).isoformat()
+        write_status(
+            run_dir / "status.json",
+            RunStatus(
+                baseline="npr",
                 status=final_status,
                 reason=final_reason,  # type: ignore
                 command=sys.argv,

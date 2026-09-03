@@ -42,6 +42,9 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+npr = [
+    { name = "torch" },
+]
 qwen = [
     { name = "accelerate" },
     { name = "qwen-vl-utils" },
@@ -62,11 +65,12 @@ requires-dist = [
     { name = "qwen-vl-utils", marker = "extra == 'qwen'" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
     { name = "scikit-learn", specifier = ">=1.4.0" },
+    { name = "torch", marker = "extra == 'npr'" },
     { name = "torch", marker = "extra == 'qwen'" },
     { name = "tqdm", specifier = ">=4.66.0" },
     { name = "transformers", marker = "extra == 'qwen'" },
 ]
-provides-extras = ["dev", "clip", "qwen"]
+provides-extras = ["dev", "clip", "qwen", "npr"]
 
 [[package]]
 name = "annotated-doc"

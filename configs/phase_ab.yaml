@@ -74,7 +74,9 @@ baselines:
   npr:
     enabled: true
     repo_url: https://github.com/chuangchuangtan/NPR-DeepfakeDetection
-    repo_commit: null
+    # Latest official commit as of 2026-09-02, verified via the GitHub API:
+    # "Update train.py" (2025-05-01, signed).
+    repo_commit: 781ced3f7ca2cdc69ec9dd4ef27e8d0b3c07752a
     checkpoint_path: external/NPR-DeepfakeDetection/NPR.pth
     checkpoint_sha256: null
     batch_size: 32

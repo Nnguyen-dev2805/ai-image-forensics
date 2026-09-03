@@ -35,7 +35,8 @@ def test_smoke_config_baseline_values():
 
 def test_full_config_loads_optional_npr_fields():
     config = load_config(FULL_CONFIG)
-    assert config.baselines.npr.repo_commit is None
+    # Task 10 pins the verified official NPR commit in the real config.
+    assert config.baselines.npr.repo_commit == ("781ced3f7ca2cdc69ec9dd4ef27e8d0b3c07752a")
     assert config.baselines.npr.checkpoint_sha256 is None
 
 
