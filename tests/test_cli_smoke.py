@@ -68,7 +68,8 @@ def test_subcommand_prints_and_returns_zero(
     assert exit_code == 0
     assert expected_substring in captured.out
 
-    if argv[0] not in ("prepare", "evaluate", "run"):
+    # Task 11: report prints the generated report path, not the config path.
+    if argv[0] not in ("prepare", "evaluate", "run", "report"):
         assert str(cfg_path) in captured.out
 
 

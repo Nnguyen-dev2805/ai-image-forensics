@@ -394,9 +394,30 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
 
 def _cmd_report(args: argparse.Namespace) -> int:
     config = load_config(args.config)
+
+    from aiforensics.reporting.markdown import (
+        ReportingError,
+        build_phase_ab_report,
+        discover_run_summaries,
+        write_phase_ab_report,
+    )
+
+    try:
+        runs = discover_run_summaries(config)
+        text = build_phase_ab_report(config, runs)
+        report_path = write_phase_ab_report(config, text)
+    except ReportingError as exc:
+        print(f"Error generating report: {exc}")
+        return 1
+
+    counts = {"completed": 0, "failed": 0, "deferred": 0, "missing": 0}
+    for run in runs:
+        counts[run.status] += 1
     print(
-        f"[report] placeholder: project={config.project.name} "
-        f"phase={config.project.phase} config={args.config}"
+        f"[report] project={config.project.name} phase={config.project.phase} "
+        f"runs={len(runs)} completed={counts['completed']} "
+        f"failed={counts['failed']} deferred={counts['deferred']} "
+        f"missing={counts['missing']} path={report_path}"
     )
     return 0
 
