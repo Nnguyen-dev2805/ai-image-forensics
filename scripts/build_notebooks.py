@@ -1,0 +1,717 @@
+"""One-shot generator for the Task 12 hosted-notebook wrappers.
+
+Run from the repository root:
+
+    uv run python scripts/build_notebooks.py
+
+Notebook JSON is generated rather than hand-edited so that committed cells stay
+free of execution counts, outputs, and stale metadata.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+NOTEBOOK_DIR = REPO_ROOT / "notebooks"
+
+
+def md(text: str) -> dict:
+    return {"cell_type": "markdown", "metadata": {}, "source": text.strip("\n").splitlines(True)}
+
+
+def code(text: str) -> dict:
+    return {
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": text.strip("\n").splitlines(True),
+    }
+
+
+def notebook(cells: list[dict]) -> dict:
+    return {
+        "cells": cells,
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3",
+            },
+            "language_info": {"name": "python"},
+        },
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+
+
+# ---------------------------------------------------------------------------
+# shared cell bodies
+# ---------------------------------------------------------------------------
+
+TITLE_COLAB = """
+# Phase A/B on Google Colab
+
+This notebook is a **thin wrapper** around the `aiforensics` command-line
+interface that already lives in this repository. It installs the package,
+prepares an environment, points the pipeline at storage you control, and then
+calls the same public CLI you would run locally.
+
+It does **not** implement dataset parsing, manifest validation, model loading,
+inference, metrics, reporting, caching, or NPR checkout. Those behaviours belong
+to the package (Tasks 1-11) and must stay there.
+
+Before you start, understand the limits:
+
+- A full Phase A/B comparison needs **pre-provisioned images and manifests**.
+  `aiforensics prepare` validates what already exists; it is not a
+  research-dataset downloader.
+- The heavy baselines (Qwen-VL, Assisted Qwen, NPR) generally need **CUDA**,
+  network access for model weights, and an operator-provided NPR checkpoint.
+- The optional smoke section proves the pipeline works in this environment.
+  Smoke metrics are pipeline checks and **not scientific evidence**.
+- Colab runtime storage is **ephemeral**: anything written outside mounted Drive
+  disappears when the runtime is recycled.
+
+See `docs/runbook-colab-kaggle.md` for the operator runbook.
+"""
+
+TITLE_KAGGLE = """
+# Phase A/B on Kaggle
+
+This notebook is a **thin wrapper** around the `aiforensics` command-line
+interface that already lives in this repository. It installs the package,
+prepares an environment, points the pipeline at storage you control, and then
+calls the same public CLI you would run locally.
+
+It does **not** implement dataset parsing, manifest validation, model loading,
+inference, metrics, reporting, caching, or NPR checkout. Those behaviours belong
+to the package (Tasks 1-11) and must stay there.
+
+Before you start, understand the limits:
+
+- A full Phase A/B comparison needs **pre-provisioned images and manifests**.
+  `aiforensics prepare` validates what already exists; it is not a
+  research-dataset downloader.
+- The heavy baselines (Qwen-VL, Assisted Qwen, NPR) generally need **CUDA**,
+  network access for model weights, and an operator-provided NPR checkpoint.
+- The optional smoke section proves the pipeline works in this environment.
+  Smoke metrics are pipeline checks and **not scientific evidence**.
+- Attached datasets under `/kaggle/input` are **read-only**. Every generated
+  artifact must be written to writable storage such as `/kaggle/working`, which
+  is also **ephemeral** once the session ends unless you save the output.
+- Installing packages and provisioning Python 3.10 needs the notebook
+  **Internet** setting to be enabled.
+
+See `docs/runbook-colab-kaggle.md` for the operator runbook.
+"""
+
+PREFLIGHT_MD = """
+## 1. Runtime preflight
+
+This cell only reports what the environment looks like. It deliberately does
+**not** fail when the notebook kernel is newer than Python 3.10: the kernel never
+imports `aiforensics`, the CLI does. What matters is whether a Python 3.10
+interpreter is available for the CLI, because `pyproject.toml` declares
+
+```text
+requires-python = ">=3.10,<3.11"
+```
+
+GPU output below is informational. Real device selection and deferral stay
+inside the baseline adapters.
+"""
+
+PREFLIGHT_CODE = '''
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# User-editable: where the Python 3.10 environment for the CLI lives.
+CLI_VENV_PATH = Path("/content/aiforensics-venv310")
+
+TARGET_PY = (3, 10)
+
+
+def _venv_bin(venv_path: Path) -> Path:
+    """Return the scripts directory of a virtual environment."""
+    return venv_path / ("Scripts" if os.name == "nt" else "bin")
+
+
+def _interpreter_version(executable: str) -> tuple[int, int] | None:
+    """Return (major, minor) for an interpreter, or None when unusable."""
+    try:
+        result = subprocess.run(
+            [executable, "-c", "import sys; print(sys.version_info[0], sys.version_info[1])"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    parts = result.stdout.split()
+    if len(parts) != 2:
+        return None
+    return int(parts[0]), int(parts[1])
+
+
+def find_cli_python() -> str | None:
+    """Find an interpreter that satisfies the repository Python contract."""
+    candidates = [
+        str(_venv_bin(CLI_VENV_PATH) / "python"),
+        shutil.which("python3.10"),
+        sys.executable,
+    ]
+    for candidate in candidates:
+        if not candidate or not Path(candidate).exists():
+            continue
+        if _interpreter_version(candidate) == TARGET_PY:
+            return candidate
+    return None
+
+
+print("notebook kernel:", sys.version.split()[0], "(informational only)")
+print("working directory:", Path.cwd())
+
+CLI_PYTHON = find_cli_python()
+if CLI_PYTHON:
+    print("Python 3.10 for the CLI:", CLI_PYTHON)
+else:
+    print(
+        "No Python 3.10 interpreter found yet.\\n"
+        "Run the optional provisioning cell in section 2 before installing the package."
+    )
+
+gpu = shutil.which("nvidia-smi")
+if gpu:
+    subprocess.run([gpu], check=False)
+else:
+    print("nvidia-smi not found: no GPU visible to this runtime (informational).")
+'''
+
+PROVISION_MD = """
+## 2. Optional: provision Python 3.10 for the CLI
+
+Run this section **only when section 1 reported no Python 3.10 interpreter**.
+
+It creates a dedicated virtual environment on Python 3.10 and puts it first on
+`PATH`, so later cells can call `aiforensics` unchanged. This satisfies the
+repository's `requires-python` contract honestly: the package is installed under
+a real 3.10 interpreter. Never edit `pyproject.toml` to make an install succeed.
+
+This step needs **network access** (to fetch `uv`, the interpreter, and the
+dependencies).
+"""
+
+PROVISION_CODE = '''
+def provision_cli_python(venv_path: Path) -> str:
+    """Create a Python 3.10 virtual environment and prepend it to PATH."""
+    if shutil.which("uv") is None:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "uv"],
+            check=True,
+        )
+
+    uv = shutil.which("uv") or str(Path(sys.executable).parent / "uv")
+    subprocess.run([uv, "python", "install", "3.10"], check=True)
+    subprocess.run(
+        [uv, "venv", "--seed", "--no-project", "--python", "3.10", str(venv_path)],
+        check=True,
+    )
+
+    bin_dir = _venv_bin(venv_path)
+    os.environ["PATH"] = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+    os.environ["VIRTUAL_ENV"] = str(venv_path)
+    return str(bin_dir / "python")
+
+
+CLI_PYTHON = provision_cli_python(CLI_VENV_PATH)
+print("provisioned CLI interpreter:", CLI_PYTHON)
+'''
+
+VERIFY_PY_MD = """
+### 2b. Verify the CLI interpreter
+
+This is the first hard gate. If no valid Python 3.10 environment exists after
+provisioning, stop here and fix the environment instead of working around the
+version contract.
+"""
+
+VERIFY_PY_CODE = """
+resolved = shutil.which("python") or ""
+version = _interpreter_version(resolved) if resolved else None
+
+print("python on PATH:", resolved or "<none>")
+print("python version:", ".".join(str(p) for p in version) if version else "<unknown>")
+
+if version != TARGET_PY:
+    raise RuntimeError(
+        "No usable Python 3.10 environment for the CLI. The repository requires "
+        ">=3.10,<3.11. Run the provisioning cell above, or select a runtime that "
+        "provides Python 3.10. Do not modify pyproject.toml to bypass this."
+    )
+
+print("OK: the CLI will run under Python 3.10.")
+"""
+
+REPO_MD_COLAB = """
+## 3. Repository location
+
+Point `REPO_ROOT` at a checkout of this repository. Either use a clone that is
+already present in the runtime, or set `REPO_GIT_URL` to a repository you control
+and let the cell clone it. Do not embed credentials in this notebook; use a
+Colab secret or an environment variable if a private clone needs authentication.
+"""
+
+REPO_MD_KAGGLE = """
+## 3. Repository location
+
+Point `REPO_ROOT` at a checkout of this repository. Either attach it as a Kaggle
+dataset/utility script and copy it into writable storage, or set `REPO_GIT_URL`
+to a repository you control and let the cell clone it (needs Internet enabled).
+Do not embed credentials in this notebook; use an environment variable or Kaggle
+Secrets if a private clone needs authentication.
+"""
+
+REPO_CODE_TEMPLATE = """
+# User-editable inputs.
+REPO_ROOT = Path("{repo_root}")
+REPO_GIT_URL = ""  # e.g. "https://github.com/<owner>/<repo>.git"; leave empty to skip cloning
+
+if not REPO_ROOT.exists() and REPO_GIT_URL:
+    REPO_ROOT.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "clone", REPO_GIT_URL, str(REPO_ROOT)], check=True)
+
+REQUIRED_REPO_FILES = [
+    REPO_ROOT / "pyproject.toml",
+    REPO_ROOT / "configs/phase_ab.yaml",
+]
+missing = [str(path) for path in REQUIRED_REPO_FILES if not path.is_file()]
+if missing:
+    raise FileNotFoundError(
+        "REPO_ROOT does not look like this repository. Missing: "
+        + ", ".join(missing)
+        + ". Set REPO_ROOT (or REPO_GIT_URL) to a valid checkout."
+    )
+
+os.chdir(REPO_ROOT)
+print("repository root:", REPO_ROOT)
+"""
+
+INSTALL_MD = """
+## 4. Install the package
+
+Dependency names come from `pyproject.toml`; nothing is pinned again here. The
+optional extras map to the baselines: `clip` for the CLIP probe, `qwen` for
+Qwen-VL and Assisted Qwen, `npr` for the NPR runtime bridge.
+
+Model weights and the NPR checkpoint are **not** packaged with the repository.
+"""
+
+INSTALL_CODE = """
+%%bash
+set -euo pipefail
+
+cd "$AIF_REPO_ROOT"
+python -m pip install --quiet --upgrade pip
+python -m pip install -e ".[clip,qwen,npr]"
+"""
+
+INSTALL_ENV_CODE = """
+os.environ["AIF_REPO_ROOT"] = str(REPO_ROOT)
+print("AIF_REPO_ROOT =", os.environ["AIF_REPO_ROOT"])
+"""
+
+VERIFY_CLI_MD = """
+### 4b. Verify the CLI resolves from the Python 3.10 environment
+
+Second hard gate: the `aiforensics` entry point must exist and run under the
+interpreter verified in section 2b.
+"""
+
+VERIFY_CLI_CODE = """
+cli_path = shutil.which("aiforensics")
+print("aiforensics on PATH:", cli_path or "<none>")
+
+if not cli_path:
+    raise RuntimeError(
+        "The aiforensics CLI is not on PATH. Re-run the install cell, and make "
+        "sure the Python 3.10 environment from section 2 is still first on PATH."
+    )
+
+result = subprocess.run([cli_path, "--help"], capture_output=True, text=True, check=False)
+if result.returncode != 0:
+    raise RuntimeError(f"aiforensics --help failed with exit code {result.returncode}")
+
+print("OK: CLI available at", cli_path)
+"""
+
+STORAGE_MD_COLAB = """
+## 5. Storage inputs
+
+Every project root is an explicit, user-editable variable. Choose between:
+
+1. **ephemeral runtime storage** (fast, disappears when the runtime recycles),
+2. **mounted Drive storage** (persists caches, outputs, external checkout,
+   checkpoint, and/or research data across sessions).
+
+`DRIVE_MOUNT_POINT` and `PERSIST_ROOT` are examples you are expected to change.
+Nothing here assumes a particular Drive folder name.
+"""
+
+STORAGE_CODE_COLAB = """
+USE_DRIVE = False  # set True to keep artifacts on Google Drive
+
+# User-editable: Colab mount point and the folder you want to use inside Drive.
+DRIVE_MOUNT_POINT = Path("/content/drive")
+DRIVE_PROJECT_SUBPATH = "MyDrive/<your-folder>/ai-image-forensics"  # example: change this
+
+if USE_DRIVE:
+    from google.colab import drive
+
+    drive.mount(str(DRIVE_MOUNT_POINT))
+    PERSIST_ROOT = DRIVE_MOUNT_POINT / DRIVE_PROJECT_SUBPATH
+else:
+    PERSIST_ROOT = Path("/content/aiforensics-workspace")
+
+# The five project roots required by the pipeline, plus explicit manifest and
+# checkpoint paths. Point them anywhere you control.
+DATA_ROOT = PERSIST_ROOT / "data"
+MANIFEST_ROOT = PERSIST_ROOT / "manifests"
+CACHE_ROOT = PERSIST_ROOT / "cache"
+OUTPUT_ROOT = PERSIST_ROOT / "outputs"
+EXTERNAL_ROOT = PERSIST_ROOT / "external"
+NPR_CHECKPOINT_PATH = PERSIST_ROOT / "checkpoints" / "NPR.pth"
+
+# Manifest filenames are separate config fields today; override them if your
+# provisioned manifests use different names.
+TINY_TRAIN_MANIFEST = MANIFEST_ROOT / "tiny_genimage_train.csv"
+TINY_DEV_MANIFEST = MANIFEST_ROOT / "tiny_genimage_dev.csv"
+GENIMAGE_UNSEEN_MANIFEST = MANIFEST_ROOT / "genimage_midjourney_external.csv"
+SYNTHBUSTER_MANIFEST = MANIFEST_ROOT / "synthbuster_external.csv"
+
+for writable in (CACHE_ROOT, OUTPUT_ROOT, EXTERNAL_ROOT):
+    writable.mkdir(parents=True, exist_ok=True)
+
+print("persist root :", PERSIST_ROOT)
+print("data root    :", DATA_ROOT)
+print("manifest root:", MANIFEST_ROOT)
+print("cache root   :", CACHE_ROOT)
+print("output root  :", OUTPUT_ROOT)
+print("external root:", EXTERNAL_ROOT)
+print("npr ckpt     :", NPR_CHECKPOINT_PATH)
+"""
+
+STORAGE_MD_KAGGLE = """
+## 5. Storage inputs
+
+Kaggle separates **read-only** attached data from **writable** working storage:
+
+- `/kaggle/input/<your-dataset>` is read-only. Research images and pre-built
+  manifests normally live here.
+- `/kaggle/working` is writable but ephemeral; save the notebook output to keep
+  anything beyond the session.
+
+No dataset slug or username is hardcoded. Replace the `<...>` placeholders with
+the datasets you attached.
+"""
+
+STORAGE_CODE_KAGGLE = """
+# User-editable: Kaggle mount points.
+KAGGLE_INPUT_ROOT = Path("/kaggle/input")  # read-only attached datasets
+KAGGLE_WORKING_ROOT = Path("/kaggle/working")  # writable, ephemeral
+
+# Replace the placeholders with the datasets you attached to this notebook.
+INPUT_DATA_DIR = KAGGLE_INPUT_ROOT / "<your-images-dataset>"
+INPUT_MANIFEST_DIR = KAGGLE_INPUT_ROOT / "<your-manifests-dataset>"
+INPUT_CHECKPOINT_DIR = KAGGLE_INPUT_ROOT / "<your-npr-checkpoint-dataset>"
+
+# Read-only inputs.
+DATA_ROOT = INPUT_DATA_DIR
+MANIFEST_ROOT = INPUT_MANIFEST_DIR
+NPR_CHECKPOINT_PATH = INPUT_CHECKPOINT_DIR / "NPR.pth"
+
+# Writable outputs: never place these under /kaggle/input.
+CACHE_ROOT = KAGGLE_WORKING_ROOT / "cache"
+OUTPUT_ROOT = KAGGLE_WORKING_ROOT / "outputs"
+EXTERNAL_ROOT = KAGGLE_WORKING_ROOT / "external"
+
+# Manifest filenames are separate config fields today; override them if your
+# provisioned manifests use different names.
+TINY_TRAIN_MANIFEST = MANIFEST_ROOT / "tiny_genimage_train.csv"
+TINY_DEV_MANIFEST = MANIFEST_ROOT / "tiny_genimage_dev.csv"
+GENIMAGE_UNSEEN_MANIFEST = MANIFEST_ROOT / "genimage_midjourney_external.csv"
+SYNTHBUSTER_MANIFEST = MANIFEST_ROOT / "synthbuster_external.csv"
+
+for writable in (CACHE_ROOT, OUTPUT_ROOT, EXTERNAL_ROOT):
+    writable.mkdir(parents=True, exist_ok=True)
+
+print("data root    : (read-only)", DATA_ROOT)
+print("manifest root: (read-only)", MANIFEST_ROOT)
+print("npr ckpt     : (read-only)", NPR_CHECKPOINT_PATH)
+print("cache root   : (writable)", CACHE_ROOT)
+print("output root  : (writable)", OUTPUT_ROOT)
+print("external root: (writable)", EXTERNAL_ROOT)
+"""
+
+CONFIG_MD = """
+## 6. Generate the runtime config
+
+`configs/phase_ab.yaml` is treated as a **read-only template**. This cell copies
+it and rewrites path values only, then writes the result under
+`.cache/aiforensics-notebook/` inside the repository.
+
+Two constraints drive that location:
+
+- the config loader finds the repository root by walking up to `pyproject.toml`,
+  so the generated file must stay under `REPO_ROOT`;
+- `.cache/` is git-ignored, so the generated config is never committed.
+
+Scientific settings are **not** touched: dataset enable flags, model ids, prompt
+ids, CLIP seeds, the metric list, report policy, and the pinned NPR repository
+URL/commit all stay exactly as committed.
+"""
+
+CONFIG_CODE_TEMPLATE = """
+import yaml
+
+TEMPLATE_CONFIG = REPO_ROOT / "configs/phase_ab.yaml"
+GENERATED_CONFIG = REPO_ROOT / ".cache/aiforensics-notebook/phase_ab_{platform}.yaml"
+
+with open(TEMPLATE_CONFIG, encoding="utf-8") as handle:
+    cfg = yaml.safe_load(handle)
+
+# Only environment/path values change.
+cfg["paths"]["data_root"] = str(DATA_ROOT)
+cfg["paths"]["manifest_root"] = str(MANIFEST_ROOT)
+cfg["paths"]["cache_root"] = str(CACHE_ROOT)
+cfg["paths"]["output_root"] = str(OUTPUT_ROOT)
+cfg["paths"]["external_root"] = str(EXTERNAL_ROOT)
+
+cfg["datasets"]["tiny_genimage"]["train_manifest"] = str(TINY_TRAIN_MANIFEST)
+cfg["datasets"]["tiny_genimage"]["dev_manifest"] = str(TINY_DEV_MANIFEST)
+cfg["datasets"]["genimage_unseen"]["manifest"] = str(GENIMAGE_UNSEEN_MANIFEST)
+cfg["datasets"]["synthbuster"]["manifest"] = str(SYNTHBUSTER_MANIFEST)
+
+cfg["baselines"]["npr"]["checkpoint_path"] = str(NPR_CHECKPOINT_PATH)
+
+GENERATED_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+with open(GENERATED_CONFIG, "w", encoding="utf-8") as handle:
+    yaml.safe_dump(cfg, handle, sort_keys=False)
+
+os.environ["AIF_CONFIG"] = str(GENERATED_CONFIG)
+print("runtime config:", GENERATED_CONFIG)
+"""
+
+VALIDATE_MD = """
+## 7. Validate provisioned inputs
+
+This cell only reports where things are. It does not read image data, compute
+checksums, or validate manifest contents: `aiforensics prepare` remains the
+authoritative validator.
+
+A missing NPR checkpoint is surfaced here, before the NPR command runs. Do not
+download a checkpoint from an unverified third party.
+"""
+
+VALIDATE_CODE = """
+enabled_manifests = []
+if cfg["datasets"]["tiny_genimage"]["enabled"]:
+    enabled_manifests += [TINY_TRAIN_MANIFEST, TINY_DEV_MANIFEST]
+if cfg["datasets"]["genimage_unseen"]["enabled"]:
+    enabled_manifests.append(GENIMAGE_UNSEEN_MANIFEST)
+if cfg["datasets"]["synthbuster"]["enabled"]:
+    enabled_manifests.append(SYNTHBUSTER_MANIFEST)
+
+print("runtime config :", GENERATED_CONFIG, "exists:", GENERATED_CONFIG.is_file())
+print("data root      :", DATA_ROOT, "exists:", DATA_ROOT.is_dir())
+print("cache root     :", CACHE_ROOT, "exists:", CACHE_ROOT.is_dir())
+print("output root    :", OUTPUT_ROOT, "exists:", OUTPUT_ROOT.is_dir())
+print("external root  :", EXTERNAL_ROOT, "exists:", EXTERNAL_ROOT.is_dir())
+
+print("\\nmanifests for enabled datasets:")
+for path in enabled_manifests:
+    print("  -", path, "exists:", path.is_file())
+
+print("\\nnpr checkpoint :", NPR_CHECKPOINT_PATH, "exists:", NPR_CHECKPOINT_PATH.is_file())
+if not NPR_CHECKPOINT_PATH.is_file():
+    print(
+        "  NPR will follow its allow_deferred policy: provide the official "
+        "checkpoint at this path for a real NPR run."
+    )
+"""
+
+FULL_RUN_MD = """
+## 8. Full Phase A/B run
+
+These cells call the public CLI in the required order. Each cell uses
+`set -euo pipefail`, so a real CLI failure stops the cell and stays visible.
+Nothing is wrapped in `|| true`.
+
+`assisted_qwen` must run **after** `clip_probe` because its Phase A/B contract
+consumes CLIP assistant predictions.
+
+One `clip_probe` command covers every configured seed; the notebook never loops
+over seeds itself. A baseline that records a `deferred` artifact according to its
+adapter contract is a legitimate environment outcome, not a notebook error to
+swallow.
+"""
+
+FULL_RUN_CELLS = [
+    'aiforensics prepare --config "$AIF_CONFIG"',
+    'aiforensics run --baseline clip_probe --config "$AIF_CONFIG"',
+    'aiforensics run --baseline qwen_vl --config "$AIF_CONFIG"',
+    'aiforensics run --baseline npr --config "$AIF_CONFIG"',
+    'aiforensics run --baseline assisted_qwen --config "$AIF_CONFIG"',
+    'aiforensics evaluate --config "$AIF_CONFIG"',
+    'aiforensics report --config "$AIF_CONFIG"',
+]
+
+ARTIFACT_MD = """
+## 9. Artifacts
+
+Where to look after a run. The notebook only points at these files; parsing and
+rendering stay in the package (`aiforensics evaluate` and `aiforensics report`).
+
+```text
+<OUTPUT_ROOT>/manifest_validation.json
+<OUTPUT_ROOT>/<run_id>/status.json
+<OUTPUT_ROOT>/<run_id>/predictions.jsonl
+<OUTPUT_ROOT>/<run_id>/metrics.json
+<OUTPUT_ROOT>/<run_id>/metrics_by_source.csv
+<OUTPUT_ROOT>/<configured report filename>
+```
+"""
+
+ARTIFACT_CODE = """
+report_path = OUTPUT_ROOT / cfg["report"]["filename"]
+
+print("manifest validation:", OUTPUT_ROOT / "manifest_validation.json")
+print("report             :", report_path, "exists:", report_path.is_file())
+
+print("\\nrun directories under", OUTPUT_ROOT)
+if OUTPUT_ROOT.is_dir():
+    for entry in sorted(p for p in OUTPUT_ROOT.iterdir() if p.is_dir()):
+        print("  -", entry.name)
+"""
+
+SMOKE_MD = """
+## 10. Optional: smoke verification
+
+The smoke flow proves that installation and the CLI pipeline work in this hosted
+environment. It uses the committed `configs/phase_ab_smoke.yaml` fixtures.
+
+> Smoke metrics are pipeline checks, **not scientific evidence**.
+
+The committed smoke config is never modified. This section generates a copy that
+relocates `cache_root` and `output_root` only, so nothing is written to
+repository paths that may be read-only or ephemeral. Smoke `data_root` and smoke
+manifests keep pointing at the repository fixtures, because those fixtures *are*
+the smoke dataset.
+"""
+
+SMOKE_CONFIG_CODE_TEMPLATE = """
+# AIF_SECTION: smoke
+SMOKE_TEMPLATE = REPO_ROOT / "configs/phase_ab_smoke.yaml"
+SMOKE_CONFIG = REPO_ROOT / ".cache/aiforensics-notebook/phase_ab_smoke_{platform}.yaml"
+
+with open(SMOKE_TEMPLATE, encoding="utf-8") as handle:
+    smoke_cfg = yaml.safe_load(handle)
+
+# Relocate writable roots only; fixtures stay where they are committed.
+smoke_cfg["paths"]["cache_root"] = str(CACHE_ROOT / "smoke")
+smoke_cfg["paths"]["output_root"] = str(OUTPUT_ROOT / "smoke")
+
+SMOKE_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+with open(SMOKE_CONFIG, "w", encoding="utf-8") as handle:
+    yaml.safe_dump(smoke_cfg, handle, sort_keys=False)
+
+os.environ["AIF_SMOKE_CONFIG"] = str(SMOKE_CONFIG)
+print("smoke runtime config:", SMOKE_CONFIG)
+"""
+
+SMOKE_RUN_CODE = """
+%%bash
+# AIF_SECTION: smoke
+set -euo pipefail
+
+cd "$AIF_REPO_ROOT"
+aiforensics prepare --config "$AIF_SMOKE_CONFIG"
+aiforensics run --baseline clip_probe --config "$AIF_SMOKE_CONFIG"
+aiforensics run --baseline qwen_vl --config "$AIF_SMOKE_CONFIG"
+aiforensics run --baseline npr --config "$AIF_SMOKE_CONFIG"
+aiforensics run --baseline assisted_qwen --config "$AIF_SMOKE_CONFIG"
+aiforensics evaluate --config "$AIF_SMOKE_CONFIG"
+aiforensics report --config "$AIF_SMOKE_CONFIG"
+"""
+
+
+def full_run_cell(command: str) -> dict:
+    return code(
+        f'%%bash\n# AIF_SECTION: full_run\nset -euo pipefail\n\ncd "$AIF_REPO_ROOT"\n{command}\n'
+    )
+
+
+def build(platform: str) -> dict:
+    is_colab = platform == "colab"
+    cells: list[dict] = [
+        md(TITLE_COLAB if is_colab else TITLE_KAGGLE),
+        md(PREFLIGHT_MD),
+        code(
+            PREFLIGHT_CODE
+            if is_colab
+            else PREFLIGHT_CODE.replace(
+                'CLI_VENV_PATH = Path("/content/aiforensics-venv310")',
+                'CLI_VENV_PATH = Path("/kaggle/working/aiforensics-venv310")',
+            )
+        ),
+        md(PROVISION_MD),
+        code(PROVISION_CODE),
+        md(VERIFY_PY_MD),
+        code(VERIFY_PY_CODE),
+        md(REPO_MD_COLAB if is_colab else REPO_MD_KAGGLE),
+        code(
+            REPO_CODE_TEMPLATE.format(
+                repo_root="/content/ai-image-forensics"
+                if is_colab
+                else "/kaggle/working/ai-image-forensics"
+            )
+        ),
+        md(INSTALL_MD),
+        code(INSTALL_ENV_CODE),
+        code(INSTALL_CODE),
+        md(VERIFY_CLI_MD),
+        code(VERIFY_CLI_CODE),
+        md(STORAGE_MD_COLAB if is_colab else STORAGE_MD_KAGGLE),
+        code(STORAGE_CODE_COLAB if is_colab else STORAGE_CODE_KAGGLE),
+        md(CONFIG_MD),
+        code(CONFIG_CODE_TEMPLATE.format(platform=platform)),
+        md(VALIDATE_MD),
+        code(VALIDATE_CODE),
+        md(FULL_RUN_MD),
+        *[full_run_cell(command) for command in FULL_RUN_CELLS],
+        md(ARTIFACT_MD),
+        code(ARTIFACT_CODE),
+        md(SMOKE_MD),
+        code(SMOKE_CONFIG_CODE_TEMPLATE.format(platform=platform)),
+        code(SMOKE_RUN_CODE),
+    ]
+    return notebook(cells)
+
+
+def main() -> None:
+    NOTEBOOK_DIR.mkdir(parents=True, exist_ok=True)
+    for platform in ("colab", "kaggle"):
+        path = NOTEBOOK_DIR / f"{platform}_phase_ab.ipynb"
+        path.write_text(json.dumps(build(platform), indent=1) + "\n", encoding="utf-8")
+        print("wrote", path)
+
+
+if __name__ == "__main__":
+    main()

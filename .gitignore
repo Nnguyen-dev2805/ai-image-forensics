@@ -26,19 +26,20 @@ env/
 .env
 .env.*
 
-# Local agent and planning files
-AGENTS.md
-.agents/
+# Local agent tooling (configs/docs/AGENTS.md are tracked)
+.agents
+.claude
 .cbmignore
-configs/
-docs/
+.workbuddy-ai
 
 # Data, models, and generated artifacts
-data/
-manifests/
-outputs/
+/data/
+/manifests/
+/outputs/
 .cache/
 cache/
+# Keep the source package trackable despite the broad cache/ ignore above.
+!src/aiforensics/cache/
 checkpoints/
 weights/
 models/
@@ -52,4 +53,5 @@ external/*
 !external/.gitkeep
 
 # Codebase memory local cache
+.codegraph/
 .codebase-memory/

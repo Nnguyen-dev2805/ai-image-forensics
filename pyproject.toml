@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiforensics"
+version = "0.1.0"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "pyyaml>=6.0.1",
+    "pydantic>=2.8.0",
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "scikit-learn>=1.4.0",
+    "pillow>=10.0.0",
+    "tqdm>=4.66.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+]
+clip = [
+    "open_clip_torch",
+]
+qwen = [
+    "torch",
+    "transformers",
+    "accelerate",
+    "qwen-vl-utils",
+]
+npr = [
+    # Only what the pinned NPR runtime bridge imports: networks/resnet.py needs
+    # torch + numpy; preprocessing uses Pillow + numpy. scipy, OpenCV, and
+    # torchvision are not imported by the bridge.
+    "torch",
+]
+
+[project.scripts]
+aiforensics = "aiforensics.cli.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
