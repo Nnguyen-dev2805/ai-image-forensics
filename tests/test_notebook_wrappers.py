@@ -398,6 +398,98 @@ def test_kaggle_notebook_hardcodes_no_dataset_slug(notebooks: dict[str, dict]) -
 
 
 # ---------------------------------------------------------------------------
+# manifest building contract
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_notebook_exposes_build_manifests_switch(platform: str, notebooks: dict[str, dict]) -> None:
+    """Building overwrites manifest CSVs, so it must be an explicit user choice."""
+    code = _code_source(notebooks[platform])
+    assert re.search(r"^\s*BUILD_MANIFESTS\s*=\s*(?:True|False)", code, re.MULTILINE)
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_prepare_build_flag_is_driven_by_the_switch_not_hardcoded(
+    platform: str, notebooks: dict[str, dict]
+) -> None:
+    """The prepare command reads one exported variable instead of two code paths."""
+    full_run = _section_source(notebooks[platform], FULL_RUN_MARKER)
+    assert 'os.environ["AIF_PREPARE_ARGS"]' in full_run
+    assert "aiforensics prepare ${AIF_PREPARE_ARGS}" in full_run
+    assert "--build-manifests" in full_run
+    # No shell cell may hardcode the flag: that would ignore BUILD_MANIFESTS.
+    for cell in _code_cells(notebooks[platform]):
+        source = _cell_source(cell)
+        if source.lstrip().startswith("%%bash"):
+            assert "prepare --build-manifests" not in source
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_prepare_still_runs_before_every_baseline(
+    platform: str, notebooks: dict[str, dict]
+) -> None:
+    full_run = _section_source(notebooks[platform], FULL_RUN_MARKER)
+    prepare_index = full_run.find("aiforensics prepare")
+    assert prepare_index != -1
+    for baseline in ("clip_probe", "qwen_vl", "npr", "assisted_qwen"):
+        assert prepare_index < full_run.find(f"--baseline {baseline}")
+
+
+def test_kaggle_manifest_root_is_writable_when_building(notebooks: dict[str, dict]) -> None:
+    """/kaggle/input is read-only, so a built manifest cannot live there."""
+    code = _code_source(notebooks["kaggle"])
+    match = re.search(r"^\s*MANIFEST_ROOT\s*=\s*(.+)$", code, re.MULTILINE)
+    assert match, "MANIFEST_ROOT assignment not found"
+    assignment = match.group(1)
+    assert "BUILD_MANIFESTS" in assignment, "manifest root must depend on the build switch"
+    assert "KAGGLE_WORKING_ROOT" in assignment, "built manifests need writable storage"
+
+
+def test_kaggle_creates_manifest_root_only_when_building(notebooks: dict[str, dict]) -> None:
+    code = _code_source(notebooks["kaggle"])
+    assert "writable_roots" in code
+    assert re.search(r"if\s+BUILD_MANIFESTS:\s*\n\s*writable_roots\.append", code)
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_notebook_reports_discovered_generator_directories(
+    platform: str, notebooks: dict[str, dict]
+) -> None:
+    """A wrong DATA_ROOT is the most common first-run mistake; surface it early."""
+    code = _code_source(notebooks[platform])
+    assert "found_generators" in code
+    assert "configured_generators" in code
+    assert "missing_generators" in code
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_generator_discovery_matches_the_builder_layout(
+    platform: str, notebooks: dict[str, dict]
+) -> None:
+    """The notebook's preflight must use the same layout rule as the builder."""
+    from aiforensics.data.genimage import _LABEL_DIRS, _SPLIT_DIRS
+
+    code = _code_source(notebooks[platform])
+    for split_dir in _SPLIT_DIRS:
+        assert f'"{split_dir}"' in code, f"notebook does not check the {split_dir} directory"
+    for label_dir in _LABEL_DIRS:
+        assert label_dir in code, f"notebook does not mention the {label_dir} directory"
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_notebook_does_not_reimplement_manifest_building(
+    platform: str, notebooks: dict[str, dict]
+) -> None:
+    """Discovery may list directories; checksums and CSV writing stay in the package."""
+    code = _code_source(notebooks[platform])
+    assert "sha256" not in code.lower()
+    assert "import csv" not in code
+    assert "write_manifest" not in code
+    assert "ManifestRecord" not in code
+
+
+# ---------------------------------------------------------------------------
 # smoke section separation
 # ---------------------------------------------------------------------------
 
@@ -489,7 +581,7 @@ def test_runbook_documents_manifest_and_checkpoint_paths(runbook_text: str) -> N
     for name in (
         "tiny_genimage_train.csv",
         "tiny_genimage_dev.csv",
-        "genimage_midjourney_external.csv",
+        "genimage_unseen_external.csv",
         "synthbuster_external.csv",
         "NPR_CHECKPOINT_PATH",
     ):
@@ -501,6 +593,24 @@ def test_runbook_states_prepare_does_not_provision_datasets(runbook_text: str) -
     assert "not a research-dataset downloader" in lowered or "not implemented" in lowered
     assert "prepare" in lowered
     assert "validates" in lowered
+
+
+def test_runbook_documents_manifest_building(runbook_text: str) -> None:
+    """The build mode, its layout contract, and its leakage rules must be written down."""
+    lowered = runbook_text.lower()
+    assert "--build-manifests" in lowered
+    assert "build_manifests" in lowered
+    for token in ("<generator>", "ai", "nature", "train", "val"):
+        assert token in lowered, f"runbook does not document the {token} layout element"
+    assert "per-generator" in lowered, "the cap semantics must be explicit"
+    assert "sha-256" in lowered or "sha256" in lowered
+    assert "shortcut" in lowered, "format-skew guidance must be documented"
+
+
+def test_runbook_documents_writable_manifest_root_for_building(runbook_text: str) -> None:
+    """/kaggle/input is read-only, so the build-mode storage split must be stated."""
+    assert "MANIFEST_ROOT" in runbook_text
+    assert "/kaggle/working/manifests" in runbook_text
 
 
 def test_runbook_documents_npr_checkpoint_and_external_repo(runbook_text: str) -> None:

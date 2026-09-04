@@ -585,7 +585,7 @@ def _render_dataset_summary(
         (
             "genimage_unseen",
             unseen.enabled,
-            f"preferred_generator={unseen.preferred_generator}; split={unseen.split}",
+            f"generators={','.join(unseen.generators) or 'none'}; split={unseen.split}",
             unseen.manifest,
         ),
         (

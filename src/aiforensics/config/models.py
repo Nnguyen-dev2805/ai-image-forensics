@@ -33,13 +33,17 @@ class TinyGenImageConfig(BaseModel):
     use_original_split: bool
     train_manifest: Path
     dev_manifest: Path
+    # GenImage-layout generator directories used as in-distribution data.
+    generators: list[str] = Field(default_factory=list)
+    max_images: int = Field(default=0, ge=0)
+    balance_labels: bool = True
 
 
 class GenImageUnseenConfig(BaseModel):
     enabled: bool
-    preferred_generator: str
-    fallback_generators: list[str]
-    max_images: int
+    # Held-out GenImage-layout generator directories, never used for training.
+    generators: list[str] = Field(default_factory=list)
+    max_images: int = Field(ge=0)
     balance_labels: bool
     split: str
     manifest: Path
