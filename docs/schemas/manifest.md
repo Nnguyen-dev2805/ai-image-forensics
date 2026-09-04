@@ -113,7 +113,7 @@ The intended manifests are:
 ```text
 manifests/tiny_genimage_train.csv
 manifests/tiny_genimage_dev.csv
-manifests/genimage_midjourney_external.csv
+manifests/genimage_unseen_external.csv
 manifests/synthbuster_external.csv
 manifests/smoke.csv
 ```

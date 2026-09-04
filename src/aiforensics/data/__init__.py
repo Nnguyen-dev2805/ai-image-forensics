@@ -1,3 +1,9 @@
+from aiforensics.data.genimage import (
+    BuiltManifest,
+    ManifestBuildResult,
+    build_genimage_manifests,
+    discover_generator_dirs,
+)
 from aiforensics.data.manifest import (
     ManifestError,
     ManifestRecord,
@@ -16,12 +22,16 @@ from aiforensics.data.selection import (
 )
 
 __all__ = [
+    "BuiltManifest",
     "EvaluationSelection",
+    "ManifestBuildResult",
     "ManifestError",
     "ManifestRecord",
     "ManifestValidationResult",
     "SelectedManifest",
+    "build_genimage_manifests",
     "compute_sha256",
+    "discover_generator_dirs",
     "load_manifest",
     "prepare_smoke_manifest",
     "selected_evaluation_manifests",

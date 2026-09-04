@@ -88,8 +88,7 @@ def _make_config(tmp_path: Path, *, phase: str = "phase_ab", **report_overrides)
             ),
             genimage_unseen=GenImageUnseenConfig(
                 enabled=False,
-                preferred_generator="sd15",
-                fallback_generators=[],
+                generators=["imagenet_midjourney"],
                 max_images=10,
                 balance_labels=True,
                 split="dev",

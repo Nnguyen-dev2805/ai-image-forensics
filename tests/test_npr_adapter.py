@@ -151,8 +151,7 @@ def _make_config(tmp_path: Path, **overrides) -> AppConfig:
             ),
             genimage_unseen=GenImageUnseenConfig(
                 enabled=False,
-                preferred_generator="midjourney",
-                fallback_generators=["adm"],
+                generators=["imagenet_midjourney"],
                 max_images=8,
                 balance_labels=True,
                 split="external",

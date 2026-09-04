@@ -103,7 +103,7 @@ expose them individually:
 | --- | --- | --- |
 | `datasets.tiny_genimage.train_manifest` | `TINY_TRAIN_MANIFEST` | `tiny_genimage_train.csv` |
 | `datasets.tiny_genimage.dev_manifest` | `TINY_DEV_MANIFEST` | `tiny_genimage_dev.csv` |
-| `datasets.genimage_unseen.manifest` | `GENIMAGE_UNSEEN_MANIFEST` | `genimage_midjourney_external.csv` |
+| `datasets.genimage_unseen.manifest` | `GENIMAGE_UNSEEN_MANIFEST` | `genimage_unseen_external.csv` |
 | `datasets.synthbuster.manifest` | `SYNTHBUSTER_MANIFEST` | `synthbuster_external.csv` |
 | `baselines.npr.checkpoint_path` | `NPR_CHECKPOINT_PATH` | `NPR.pth` |
 
@@ -118,31 +118,72 @@ Two constraints force that location: the config loader finds the repository root
 by walking up to `pyproject.toml`, so the config must live under `REPO_ROOT`; and
 `.cache/` is git-ignored, so generated configs are never committed.
 
-The notebooks change path values only. Dataset enable flags, model ids, prompt
-ids, the CLIP seed list, the metric list, report policy, and the pinned NPR
-repository URL and commit stay exactly as committed.
+The notebooks change path values only, plus the `BUILD_MANIFESTS` switch below.
+Dataset enable flags, generator lists, model ids, prompt ids, the CLIP seed list,
+the metric list, report policy, and the pinned NPR repository URL and commit stay
+exactly as committed.
 
 ## Data and Manifest Provisioning
 
-**`aiforensics prepare` is not a research-dataset downloader.** Real dataset
-download and manifest building is not implemented. For a non-smoke `phase_ab`
-config, `prepare` validates manifests that already exist; when no configured
-manifest is found it fails with
+**`aiforensics prepare` is not a research-dataset downloader.** It never fetches
+images. It has two modes over data you already provisioned:
+
+1. **validate only** (default) — checks the manifest CSVs the config points at,
+2. **build then validate** (`--build-manifests`) — derives those CSVs from a
+   GenImage-layout `data_root`, then validates them.
+
+Building expects this on-disk layout, which GenImage-style releases (including
+Tiny-GenImage) already use:
 
 ```text
-Real dataset manifest building is not implemented in Task 3.
-No configured manifests were found.
+<data_root>/<generator>/<train|val>/<ai|nature>/*.png|*.jpg|*.jpeg
 ```
 
-So, before a full run:
+The mapping is fixed: `ai` is label `fake`, `nature` is label `real`, `train`
+becomes split `train`, and `val` becomes split `dev`. Which generator directories
+are in-distribution versus held out comes from the config, not the notebook:
+
+| Config field | Role |
+| --- | --- |
+| `datasets.tiny_genimage.generators` | in-distribution; produces train + dev manifests |
+| `datasets.genimage_unseen.generators` | held out; produces the external manifest |
+| `max_images` | **per-generator** cap per manifest; `0` means no cap |
+| `balance_labels` | split the cap evenly between real and fake |
+
+The cap is per generator, not a pooled total, so per-source metrics stay
+comparable instead of letting one large generator dominate the sample.
+
+Two leakage rules are enforced, not advised:
+
+- a generator listed in both roles is rejected outright,
+- one image never enters two manifests. Content is deduplicated by SHA-256
+  across the whole build with precedence train > dev > external, because
+  GenImage reuses the same real ImageNet photographs across generators. The
+  build reports how many duplicates it skipped.
+
+`prepare` also reports the file-extension mix per label. If real images are all
+PNG and fake images all JPEG, container format becomes a shortcut a detector can
+learn instead of generation artifacts, so the build says so:
+
+```text
+[prepare] format warning: tiny_genimage split=train: real={.png:400} vs fake={.jpg:400};
+container format may act as a shortcut feature
+```
+
+Before a full run:
 
 1. raw images must already be available to the runtime or mounted storage,
-2. manifests for every **enabled** dataset must already exist,
+2. manifests for every **enabled** dataset must exist, or `BUILD_MANIFESTS` must
+   be true so they are built in-session,
 3. manifest image paths must resolve under the configured `data_root`,
 4. `prepare` validates those artifacts and writes
    `<OUTPUT_ROOT>/manifest_validation.json`,
-5. a missing real manifest is a data-provisioning problem. Do not add hidden
-   download logic to the notebook.
+5. a missing dataset is a data-provisioning problem. Do not add hidden download
+   logic to the notebook.
+
+Because building **overwrites** the manifest CSVs, it stays opt-in. Set
+`BUILD_MANIFESTS = False` once manifests are provisioned and you want them left
+untouched.
 
 An example layout (not a required host path):
 
@@ -153,7 +194,7 @@ An example layout (not a required host path):
   manifests/
     tiny_genimage_train.csv
     tiny_genimage_dev.csv
-    genimage_midjourney_external.csv
+    genimage_unseen_external.csv
     synthbuster_external.csv
   cache/
   outputs/
@@ -196,9 +237,22 @@ keeps that split explicit:
 
 - `/kaggle/input/<your-dataset>` is **read-only**. Research images, provisioned
   manifests, and the NPR checkpoint normally live in attached datasets. The
-  notebook maps `DATA_ROOT`, `MANIFEST_ROOT`, and `NPR_CHECKPOINT_PATH` here.
+  notebook maps `DATA_ROOT` and `NPR_CHECKPOINT_PATH` here.
 - `/kaggle/working` is **writable** and ephemeral. The notebook maps
   `CACHE_ROOT`, `OUTPUT_ROOT`, and `EXTERNAL_ROOT` here.
+
+`MANIFEST_ROOT` depends on `BUILD_MANIFESTS`, because the two modes have opposite
+storage requirements:
+
+| `BUILD_MANIFESTS` | `MANIFEST_ROOT` | Why |
+| --- | --- | --- |
+| `True` | `/kaggle/working/manifests` | building writes CSVs, and `/kaggle/input` is read-only |
+| `False` | `INPUT_MANIFEST_DIR` | manifests are already provisioned in an attached dataset |
+
+Building only **reads** images from `DATA_ROOT`, so a read-only image dataset is
+fine. Built manifests live in `/kaggle/working` and disappear with the session;
+save the notebook output, or attach them as a dataset and switch
+`BUILD_MANIFESTS` to `False`, to reuse the exact same manifests later.
 
 Never point `cache_root`, `output_root`, or `external_root` at `/kaggle/input`;
 the adapters must be able to write there.
@@ -206,7 +260,12 @@ the adapters must be able to write there.
 Other Kaggle specifics:
 
 - No dataset slug, username, or competition path is hardcoded. Replace the
-  `<...>` placeholders with the datasets you attached.
+  `<...>` placeholders with the datasets you attached. Give the **full**
+  directory path: Kaggle mounts datasets under more than one shape, so
+  `/kaggle/input/<slug>` and `/kaggle/input/datasets/<owner>/<slug>` both occur.
+- Section 7 lists the generator directories it can see under `DATA_ROOT` and
+  flags any generator the config asks for but cannot find. A wrong `DATA_ROOT` is
+  the most common first-run failure, and this surfaces it before `prepare` runs.
 - To keep artifacts after the session ends, save/version them through Kaggle's
   normal notebook output workflow.
 - Package installation, Python 3.10 provisioning, model downloads, and the NPR
@@ -408,8 +467,13 @@ error.
 | `aiforensics: command not found` | install cell did not run, or `PATH` was reset | re-run the install cell, then the CLI verification cell |
 | `nvidia-smi` missing, baselines defer | no GPU in this runtime | select a GPU runtime; CPU inference is not supported for the heavy baselines |
 | Qwen baselines defer | `qwen` extra missing, or model weights unreachable | install extras, enable network/model access; do not call Transformers from the notebook |
-| `prepare` reports missing manifests | real manifests not provisioned | provision manifests; `prepare` does not download datasets |
-| manifest references a missing image | manifest paths do not resolve under `data_root` | fix `DATA_ROOT` or regenerate manifests with correct relative paths |
+| `prepare` reports missing manifests | manifests not provisioned and `BUILD_MANIFESTS` is false | set `BUILD_MANIFESTS = True` to build them from `data_root`, or provision the CSVs; `prepare` never downloads datasets |
+| `prepare --build-manifests` says a generator directory does not exist | `DATA_ROOT` is wrong, or the config names a generator the dataset does not ship | compare against the generator list printed by section 7; the error also lists what it did find |
+| `prepare --build-manifests` fails writing CSVs | `MANIFEST_ROOT` is under `/kaggle/input` | set `BUILD_MANIFESTS = True` so the manifest root moves to `/kaggle/working` |
+| build reports "no train records" or "no dev records" | the in-distribution generator has no `train/` or `val/` subdirectory with images | pick a generator that ships both splits, or move it to `genimage_unseen`, which uses all splits |
+| build skipped many duplicate images | the same real photographs appear across generators | expected; deduplication is what keeps a trained image out of the evaluation set |
+| `format warning` after building | real and fake images use different container formats | investigate before trusting metrics: a detector can learn PNG-vs-JPEG instead of generation artifacts |
+| manifest references a missing image | manifest paths do not resolve under `data_root` | fix `DATA_ROOT` or rebuild manifests with `--build-manifests` |
 | NPR defers on a missing checkpoint | `checkpoint_path` does not exist | provide the official checkpoint; never fetch an unverified one |
 | NPR defers on clone/fetch | repository unreachable | enable network, or pre-provision `external_root` with the verified checkout |
 | NPR **fails** on checksum | checkpoint bytes do not match `checkpoint_sha256` | replace the checkpoint; this is not an environment deferral |
@@ -424,9 +488,12 @@ Before trusting a hosted result:
 - [ ] the CLI ran under Python 3.10 (verification cells passed),
 - [ ] `REPO_ROOT` points at the intended commit of this repository,
 - [ ] the runtime config changed **path values only**,
-- [ ] dataset enable flags, model ids, prompt ids, CLIP seeds, metrics, report
-      policy, and the pinned NPR commit are unchanged,
-- [ ] `prepare` validated the provisioned manifests,
+- [ ] dataset enable flags, generator lists, model ids, prompt ids, CLIP seeds,
+      metrics, report policy, and the pinned NPR commit are unchanged,
+- [ ] the generator directories section 7 found match the ones the config names,
+- [ ] `prepare` validated the manifests, and any `format warning` was reviewed,
+- [ ] the manifests used are recorded: built in-session (`BUILD_MANIFESTS = True`,
+      so they vanish with the session unless saved) or provisioned as a dataset,
 - [ ] the seven CLI commands ran in the documented order,
 - [ ] `assisted_qwen` ran after `clip_probe` completed,
 - [ ] every baseline's `status.json` reflects a real outcome, not a suppressed

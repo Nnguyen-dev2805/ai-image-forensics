@@ -389,14 +389,19 @@ OUTPUT_ROOT = PERSIST_ROOT / "outputs"
 EXTERNAL_ROOT = PERSIST_ROOT / "external"
 NPR_CHECKPOINT_PATH = PERSIST_ROOT / "checkpoints" / "NPR.pth"
 
+# Set True to build manifests from a GenImage-layout DATA_ROOT
+# (<generator>/<train|val>/<ai|nature>/) in this session; set False when the
+# manifest CSVs below already exist. Building overwrites those CSV files.
+BUILD_MANIFESTS = True
+
 # Manifest filenames are separate config fields today; override them if your
 # provisioned manifests use different names.
 TINY_TRAIN_MANIFEST = MANIFEST_ROOT / "tiny_genimage_train.csv"
 TINY_DEV_MANIFEST = MANIFEST_ROOT / "tiny_genimage_dev.csv"
-GENIMAGE_UNSEEN_MANIFEST = MANIFEST_ROOT / "genimage_midjourney_external.csv"
+GENIMAGE_UNSEEN_MANIFEST = MANIFEST_ROOT / "genimage_unseen_external.csv"
 SYNTHBUSTER_MANIFEST = MANIFEST_ROOT / "synthbuster_external.csv"
 
-for writable in (CACHE_ROOT, OUTPUT_ROOT, EXTERNAL_ROOT):
+for writable in (CACHE_ROOT, OUTPUT_ROOT, EXTERNAL_ROOT, MANIFEST_ROOT):
     writable.mkdir(parents=True, exist_ok=True)
 
 print("persist root :", PERSIST_ROOT)
@@ -406,6 +411,7 @@ print("cache root   :", CACHE_ROOT)
 print("output root  :", OUTPUT_ROOT)
 print("external root:", EXTERNAL_ROOT)
 print("npr ckpt     :", NPR_CHECKPOINT_PATH)
+print("build manifests:", BUILD_MANIFESTS)
 """
 
 STORAGE_MD_KAGGLE = """
@@ -427,14 +433,22 @@ STORAGE_CODE_KAGGLE = """
 KAGGLE_INPUT_ROOT = Path("/kaggle/input")  # read-only attached datasets
 KAGGLE_WORKING_ROOT = Path("/kaggle/working")  # writable, ephemeral
 
-# Replace the placeholders with the datasets you attached to this notebook.
+# Full path to the attached dataset directory that holds the images. Kaggle
+# mounts datasets under different shapes (/kaggle/input/<slug> and
+# /kaggle/input/datasets/<owner>/<slug> both occur), so give the whole path
+# instead of assuming one layout.
 INPUT_DATA_DIR = KAGGLE_INPUT_ROOT / "<your-images-dataset>"
-INPUT_MANIFEST_DIR = KAGGLE_INPUT_ROOT / "<your-manifests-dataset>"
 INPUT_CHECKPOINT_DIR = KAGGLE_INPUT_ROOT / "<your-npr-checkpoint-dataset>"
+
+# Set True to build manifests from a GenImage-layout INPUT_DATA_DIR in this
+# session; set False when manifest CSVs are already provisioned in an attached
+# dataset. Building writes CSV files, and /kaggle/input is read-only, so the two
+# modes cannot share the same manifest root.
+BUILD_MANIFESTS = True
+INPUT_MANIFEST_DIR = KAGGLE_INPUT_ROOT / "<your-manifests-dataset>"
 
 # Read-only inputs.
 DATA_ROOT = INPUT_DATA_DIR
-MANIFEST_ROOT = INPUT_MANIFEST_DIR
 NPR_CHECKPOINT_PATH = INPUT_CHECKPOINT_DIR / "NPR.pth"
 
 # Writable outputs: never place these under /kaggle/input.
@@ -442,22 +456,32 @@ CACHE_ROOT = KAGGLE_WORKING_ROOT / "cache"
 OUTPUT_ROOT = KAGGLE_WORKING_ROOT / "outputs"
 EXTERNAL_ROOT = KAGGLE_WORKING_ROOT / "external"
 
+# Built manifests must land in writable storage; provisioned ones stay read-only.
+MANIFEST_ROOT = KAGGLE_WORKING_ROOT / "manifests" if BUILD_MANIFESTS else INPUT_MANIFEST_DIR
+
 # Manifest filenames are separate config fields today; override them if your
 # provisioned manifests use different names.
 TINY_TRAIN_MANIFEST = MANIFEST_ROOT / "tiny_genimage_train.csv"
 TINY_DEV_MANIFEST = MANIFEST_ROOT / "tiny_genimage_dev.csv"
-GENIMAGE_UNSEEN_MANIFEST = MANIFEST_ROOT / "genimage_midjourney_external.csv"
+GENIMAGE_UNSEEN_MANIFEST = MANIFEST_ROOT / "genimage_unseen_external.csv"
 SYNTHBUSTER_MANIFEST = MANIFEST_ROOT / "synthbuster_external.csv"
 
-for writable in (CACHE_ROOT, OUTPUT_ROOT, EXTERNAL_ROOT):
+writable_roots = [CACHE_ROOT, OUTPUT_ROOT, EXTERNAL_ROOT]
+if BUILD_MANIFESTS:
+    writable_roots.append(MANIFEST_ROOT)
+for writable in writable_roots:
     writable.mkdir(parents=True, exist_ok=True)
 
+if not BUILD_MANIFESTS and MANIFEST_ROOT.is_relative_to(KAGGLE_INPUT_ROOT):
+    print("manifest root is read-only; manifests must already exist there")
+
 print("data root    : (read-only)", DATA_ROOT)
-print("manifest root: (read-only)", MANIFEST_ROOT)
+print("manifest root:", "(writable)" if BUILD_MANIFESTS else "(read-only)", MANIFEST_ROOT)
 print("npr ckpt     : (read-only)", NPR_CHECKPOINT_PATH)
 print("cache root   : (writable)", CACHE_ROOT)
 print("output root  : (writable)", OUTPUT_ROOT)
 print("external root: (writable)", EXTERNAL_ROOT)
+print("build manifests:", BUILD_MANIFESTS)
 """
 
 CONFIG_MD = """
@@ -516,6 +540,11 @@ This cell only reports where things are. It does not read image data, compute
 checksums, or validate manifest contents: `aiforensics prepare` remains the
 authoritative validator.
 
+When `BUILD_MANIFESTS` is true the manifest CSVs are expected to be **absent**
+here; section 8 creates them. The cell also lists the generator directories it
+can see under `DATA_ROOT` and checks them against the generators the config asks
+for, because a wrong `DATA_ROOT` is the most common first-run mistake.
+
 A missing NPR checkpoint is surfaced here, before the NPR command runs. Do not
 download a checkpoint from an unverified third party.
 """
@@ -531,13 +560,46 @@ if cfg["datasets"]["synthbuster"]["enabled"]:
 
 print("runtime config :", GENERATED_CONFIG, "exists:", GENERATED_CONFIG.is_file())
 print("data root      :", DATA_ROOT, "exists:", DATA_ROOT.is_dir())
+print("manifest root  :", MANIFEST_ROOT, "exists:", MANIFEST_ROOT.is_dir())
 print("cache root     :", CACHE_ROOT, "exists:", CACHE_ROOT.is_dir())
 print("output root    :", OUTPUT_ROOT, "exists:", OUTPUT_ROOT.is_dir())
 print("external root  :", EXTERNAL_ROOT, "exists:", EXTERNAL_ROOT.is_dir())
 
+# Generator directories are the dataset layout contract: a directory holding at
+# least one of the dataset-native split directories.
+split_dirs = ("train", "val")
+found_generators = []
+if DATA_ROOT.is_dir():
+    for entry in sorted(p for p in DATA_ROOT.iterdir() if p.is_dir()):
+        if any((entry / split).is_dir() for split in split_dirs):
+            found_generators.append(entry.name)
+
+print("\\ngenerator directories under data root:", len(found_generators))
+for name in found_generators:
+    print("  -", name)
+if not found_generators and BUILD_MANIFESTS:
+    print(
+        "  none found: check DATA_ROOT. Expected "
+        "<DATA_ROOT>/<generator>/<train|val>/<ai|nature>/"
+    )
+
+configured_generators = []
+if cfg["datasets"]["tiny_genimage"]["enabled"]:
+    configured_generators += cfg["datasets"]["tiny_genimage"].get("generators", [])
+if cfg["datasets"]["genimage_unseen"]["enabled"]:
+    configured_generators += cfg["datasets"]["genimage_unseen"].get("generators", [])
+
+missing_generators = [g for g in configured_generators if g not in found_generators]
+print("\\nconfigured generators:", configured_generators or "none")
+if missing_generators:
+    print("  MISSING under data root:", missing_generators)
+    print("  prepare --build-manifests will fail until DATA_ROOT or the config matches")
+
 print("\\nmanifests for enabled datasets:")
 for path in enabled_manifests:
     print("  -", path, "exists:", path.is_file())
+if BUILD_MANIFESTS:
+    print("  (BUILD_MANIFESTS is true: section 8 creates/overwrites these)")
 
 print("\\nnpr checkpoint :", NPR_CHECKPOINT_PATH, "exists:", NPR_CHECKPOINT_PATH.is_file())
 if not NPR_CHECKPOINT_PATH.is_file():
@@ -554,6 +616,12 @@ These cells call the public CLI in the required order. Each cell uses
 `set -euo pipefail`, so a real CLI failure stops the cell and stays visible.
 Nothing is wrapped in `|| true`.
 
+The first cell runs `prepare`. When `BUILD_MANIFESTS` is true it passes
+`--build-manifests`, which reads the GenImage-layout `DATA_ROOT`
+(`<generator>/<train|val>/<ai|nature>/`) and **overwrites** the configured
+manifest CSVs before validating them. Which generators are in-distribution
+versus held out comes from `configs/phase_ab.yaml`, not from this notebook.
+
 `assisted_qwen` must run **after** `clip_probe` because its Phase A/B contract
 consumes CLIP assistant predictions.
 
@@ -563,8 +631,16 @@ adapter contract is a legitimate environment outcome, not a notebook error to
 swallow.
 """
 
+# Exported for the prepare cell: keeps the build decision in one place instead of
+# duplicating the flag inside a shell command.
+PREPARE_ENV_CODE = """
+# AIF_SECTION: full_run
+os.environ["AIF_PREPARE_ARGS"] = "--build-manifests" if BUILD_MANIFESTS else ""
+print("prepare args:", os.environ["AIF_PREPARE_ARGS"] or "(validate only)")
+"""
+
 FULL_RUN_CELLS = [
-    'aiforensics prepare --config "$AIF_CONFIG"',
+    'aiforensics prepare ${AIF_PREPARE_ARGS} --config "$AIF_CONFIG"',
     'aiforensics run --baseline clip_probe --config "$AIF_CONFIG"',
     'aiforensics run --baseline qwen_vl --config "$AIF_CONFIG"',
     'aiforensics run --baseline npr --config "$AIF_CONFIG"',
@@ -695,6 +771,7 @@ def build(platform: str) -> dict:
         md(VALIDATE_MD),
         code(VALIDATE_CODE),
         md(FULL_RUN_MD),
+        code(PREPARE_ENV_CODE),
         *[full_run_cell(command) for command in FULL_RUN_CELLS],
         md(ARTIFACT_MD),
         code(ARTIFACT_CODE),

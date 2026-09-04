@@ -33,6 +33,14 @@ def _build_prepare_parser(subparsers: Any) -> None:
         "prepare",
         help="Validate or build dataset manifests.",
     )
+    parser.add_argument(
+        "--build-manifests",
+        action="store_true",
+        help=(
+            "Build manifests from a GenImage-layout data_root before validating. "
+            "This overwrites the configured manifest CSV files."
+        ),
+    )
     _add_config_arg(parser)
     parser.set_defaults(handler=_cmd_prepare)
 
@@ -102,6 +110,30 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
             validate_manifest,
         )
 
+        # Building overwrites manifest CSVs, so it stays opt-in behind a flag
+        # rather than happening implicitly whenever manifests are absent.
+        if getattr(args, "build_manifests", False):
+            from aiforensics.data.genimage import build_genimage_manifests
+
+            build_result = build_genimage_manifests(config)
+            for built in build_result.manifests:
+                print(
+                    f"[prepare] built {built.label} split={built.split} "
+                    f"records={built.record_count} real={built.real_count} "
+                    f"fake={built.fake_count} generators={','.join(built.generators)} "
+                    f"path={built.path}"
+                )
+                skew = built.format_skew()
+                if skew is not None:
+                    print(f"[prepare] format warning: {skew}")
+            if build_result.duplicate_checksums_skipped:
+                print(
+                    f"[prepare] skipped {build_result.duplicate_checksums_skipped} "
+                    f"duplicate image(s) already claimed by an earlier split"
+                )
+            for warning in build_result.warnings:
+                print(f"[prepare] warning: {warning}")
+
         manifest_paths: list[pathlib.Path] = []
         if config.datasets.tiny_genimage.enabled:
             manifest_paths.extend(
@@ -126,8 +158,10 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
 
         if not found_any:
             raise ManifestError(
-                "Real dataset manifest building is not implemented in Task 3. "
-                "No configured manifests were found."
+                "No configured manifest was found. Build manifests from a "
+                "GenImage-layout data_root with 'aiforensics prepare "
+                "--build-manifests --config <config>', or provision manifest "
+                "CSV files at the configured paths."
             )
 
         result = validate_manifest(all_records)

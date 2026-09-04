@@ -25,12 +25,12 @@ datasets:
     use_original_split: false
     train_manifest: tests/fixtures/manifests/smoke_train.csv
     dev_manifest: tests/fixtures/manifests/smoke_dev.csv
+    generators: []
+    max_images: 0
+    balance_labels: true
   genimage_unseen:
     enabled: false
-    preferred_generator: midjourney
-    fallback_generators:
-      - adm
-      - biggan
+    generators: []
     max_images: 8
     balance_labels: true
     split: external

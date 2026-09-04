@@ -227,9 +227,8 @@ datasets:
     dev_manifest: {tmp_path / "m_dev.csv"}
   genimage_unseen:
     enabled: false
-    preferred_generator: midjourney
-    fallback_generators:
-      - adm
+    generators:
+      - imagenet_midjourney
     max_images: 8
     balance_labels: true
     split: external

@@ -19,24 +19,42 @@ runtime:
   fail_fast: false
 
 datasets:
+  # GenImage-layout root: <data_root>/<generator>/<split>/{ai,nature}/*.{png,jpg,jpeg,...}
+  # `ai` maps to label fake, `nature` to real; `train`/`val` map to splits
+  # train/dev. Manifests are built by `aiforensics prepare --build-manifests`.
   tiny_genimage:
     enabled: true
     source: TheKernel01/Tiny-GenImage
     use_original_split: true
     train_manifest: manifests/tiny_genimage_train.csv
     dev_manifest: manifests/tiny_genimage_dev.csv
+    # In-distribution generator. One generator keeps every other generator
+    # strictly held out, so cross-generator numbers stay honest.
+    generators:
+      - imagenet_ai_0424_sdv5
+    # Per-generator cap per split; 0 means no cap. First-run budget: enough to
+    # train a probe and read per-source metrics without spending the whole
+    # session on Qwen-VL generation. Raise once the pipeline is proven.
+    max_images: 400
+    balance_labels: true
   genimage_unseen:
     enabled: true
-    preferred_generator: midjourney
-    fallback_generators:
-      - adm
-      - biggan
-    max_images: 1000
+    # Held-out generators: never trained on, used for cross-generator evaluation.
+    generators:
+      - imagenet_midjourney
+      - imagenet_ai_0508_adm
+      - imagenet_ai_0419_biggan
+      - imagenet_ai_0419_vqdm
+      - imagenet_ai_0424_wukong
+      - imagenet_glide
+    # Per-generator cap: 100 each across 6 generators, so per-source metrics
+    # stay comparable instead of one generator dominating a pooled cap.
+    max_images: 100
     balance_labels: true
     split: external
-    manifest: manifests/genimage_midjourney_external.csv
+    manifest: manifests/genimage_unseen_external.csv
   synthbuster:
-    enabled: true
+    enabled: false
     max_images: 1000
     balance_labels: true
     split: external
