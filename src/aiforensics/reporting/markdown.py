@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -22,7 +21,8 @@ import pandas as pd
 
 from aiforensics.config.models import AppConfig
 from aiforensics.evaluation.metrics import METRIC_NAMES
-from aiforensics.runs.artifacts import RunStatus
+from aiforensics.runs.artifacts import RunStatus, clip_seed_from_run_id
+from aiforensics.runs.scope import compute_run_scope, scope_matches
 
 __all__ = [
     "ReportingError",
@@ -42,7 +42,6 @@ MetricValue = float | None
 ReportStatus = Literal["completed", "failed", "deferred", "missing"]
 
 _BASELINE_ORDER: tuple[str, ...] = ("clip_probe", "qwen_vl", "assisted_qwen", "npr")
-_CLIP_SEED_SUFFIX_RE = re.compile(r"_clip_probe_seed(\d+)$")
 
 # --------------------------------------------------------------------------- models
 
@@ -370,19 +369,39 @@ def _build_summary_for_run_dir(run_dir: Path, baseline: str, seed: int | None) -
     )
 
 
+def _current_run_scope(config: AppConfig):
+    """Compute the current scope, reporting manifest problems as ReportingError.
+
+    Scope computation reads evaluation manifests, so a corrupt manifest must
+    surface as a reporting error with a clear message instead of escaping the
+    CLI's error handling as a raw ManifestError.
+    """
+    from aiforensics.data.manifest import ManifestError
+
+    try:
+        return compute_run_scope(config)
+    except ManifestError as exc:
+        raise ReportingError(
+            f"Could not determine the current run scope because an evaluation "
+            f"manifest is invalid: {exc}"
+        ) from exc
+
+
 def discover_run_summaries(config: AppConfig) -> list[RunSummary]:
     """Discover run artifacts and select the latest run per expected slot.
 
     Selection policy: scan immediate child directories of ``output_root``,
     validate every ``status.json`` through the Task 6 ``RunStatus`` model,
-    ignore unknown baselines, map candidates onto expected slots (CLIP seeds
-    via the ``_clip_probe_seed<N>`` run-id suffix), then pick the candidate
-    with the greatest ``ended_at`` per slot, breaking exact timestamp ties by
-    the lexicographically greatest directory name. Slots without candidates
-    become reporting-only ``missing`` summaries. The latest run is the truthful
-    result even when it failed, deferred, or lacks metrics.
+    ignore unknown baselines, ignore runs whose ``run_scope.json`` does not
+    match the current config's scope, map candidates onto expected slots (CLIP
+    seeds via the ``_clip_probe_seed<N>`` run-id suffix), then pick the
+    candidate with the greatest ``ended_at`` per slot, breaking exact timestamp
+    ties by the lexicographically greatest directory name. Slots without
+    candidates become reporting-only ``missing`` summaries. The latest run is
+    the truthful result even when it failed, deferred, or lacks metrics.
     """
     output_root = config.paths.output_root
+    expected_scope = _current_run_scope(config)
     candidates: dict[tuple[str, int | None], list[tuple[datetime, str, Path]]] = {}
 
     if output_root.is_dir():
@@ -395,14 +414,16 @@ def discover_run_summaries(config: AppConfig) -> list[RunSummary]:
             status, ended_at = _parse_status(status_path)
             if status.baseline not in _BASELINE_ORDER:
                 continue
+            if not scope_matches(entry, expected_scope):
+                continue  # artifact belongs to a different config/dataset slice
 
             if status.baseline == "clip_probe" and config.baselines.clip_probe.enabled:
-                match = _CLIP_SEED_SUFFIX_RE.search(entry.name)
-                if match is None:
+                seed = clip_seed_from_run_id(entry.name)
+                if seed is None:
                     continue  # suffix-less CLIP runs only feed the disabled slot
-                slot = ("clip_probe", int(match.group(1)))
+                slot = ("clip_probe", seed)
             elif status.baseline == "clip_probe":
-                if _CLIP_SEED_SUFFIX_RE.search(entry.name) is not None:
+                if clip_seed_from_run_id(entry.name) is not None:
                     continue  # suffixed runs belong only to seed slots (rule 7)
                 slot = ("clip_probe", None)
             else:

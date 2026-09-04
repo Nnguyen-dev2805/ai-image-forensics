@@ -24,7 +24,8 @@ from aiforensics.baselines.npr.errors import (
 )
 from aiforensics.baselines.npr.preprocess import PROFILE_NAME
 from aiforensics.config.models import AppConfig
-from aiforensics.data.manifest import ManifestRecord, compute_sha256, load_manifest
+from aiforensics.data.manifest import ManifestRecord, compute_sha256
+from aiforensics.data.selection import selected_evaluation_manifests
 from aiforensics.schemas.predictions import load_predictions, validate_predictions
 from aiforensics.schemas.predictions import write_predictions as write_predictions_file
 
@@ -355,36 +356,18 @@ class NPRAdapter:
         raise NPRDeferredError(f"Unsupported runtime.device for NPR: {device!r}")
 
     def _select_eval_records(self, config: AppConfig) -> list[ManifestRecord]:
-        """Select evaluation records with the Tasks 8/9 contract."""
-        data_root = config.paths.data_root
-        eval_records: list[ManifestRecord] = []
+        """Select evaluation records with the shared Tasks 8/9/10 contract."""
+        selection = selected_evaluation_manifests(config, strict=False)
+        for message in selection.warnings:
+            logger.warning("%s", message)
 
-        dev_manifest = config.datasets.tiny_genimage.dev_manifest
-        external_paths: list[tuple[str, Path]] = []
-        if config.datasets.genimage_unseen.enabled:
-            external_paths.append(("genimage_unseen", config.datasets.genimage_unseen.manifest))
-        if config.datasets.synthbuster.enabled:
-            external_paths.append(("synthbuster", config.datasets.synthbuster.manifest))
-
-        if dev_manifest.exists():
-            eval_records.extend(load_manifest(dev_manifest, data_root=data_root))
-        elif any(p.exists() for _, p in external_paths):
-            logger.warning(
-                "Tiny dev manifest missing, continuing with external manifests only: %s",
-                dev_manifest,
-            )
-        else:
+        if not selection.records:
             raise NPRConfigError(
-                f"Tiny dev manifest is missing and no enabled external evaluation "
-                f"manifest exists: {dev_manifest}"
+                "No enabled evaluation manifest exists for the NPR run; "
+                f"checked: {self._describe_candidates(config)}"
             )
 
-        for label, opt_path in external_paths:
-            if not opt_path.exists():
-                logger.warning("%s manifest missing, continuing without it: %s", label, opt_path)
-                continue
-            eval_records.extend(load_manifest(opt_path, data_root=data_root))
-
+        eval_records = list(selection.records)
         seen: set[str] = set()
         for record in eval_records:
             if record.sample_id in seen:
@@ -393,6 +376,19 @@ class NPRAdapter:
                 )
             seen.add(record.sample_id)
         return eval_records
+
+    @staticmethod
+    def _describe_candidates(config: AppConfig) -> str:
+        """Render the enabled-manifest candidates for a failure message."""
+        datasets = config.datasets
+        parts: list[str] = []
+        if datasets.tiny_genimage.enabled:
+            parts.append(f"tiny_genimage={datasets.tiny_genimage.dev_manifest}")
+        if datasets.genimage_unseen.enabled:
+            parts.append(f"genimage_unseen={datasets.genimage_unseen.manifest}")
+        if datasets.synthbuster.enabled:
+            parts.append(f"synthbuster={datasets.synthbuster.manifest}")
+        return ", ".join(parts) if parts else "no dataset is enabled in config"
 
     def _validate_images(self, records: list[ManifestRecord]) -> None:
         for record in records:

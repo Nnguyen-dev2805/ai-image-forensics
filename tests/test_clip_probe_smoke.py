@@ -218,6 +218,23 @@ def test_training_manifest_only_one_class(tmp_path):
     assert status["status"] == "failed"
 
 
+def test_disabled_tiny_genimage_fails_clip_probe_explicitly(tmp_path):
+    """CLIP needs the tiny training split; disabling tiny must fail, not train anyway."""
+    config_path = write_tmp_smoke_config(
+        tmp_path,
+        datasets__tiny_genimage__enabled=False,
+        datasets__genimage_unseen__enabled=True,
+    )
+
+    exit_code = main(["run", "--baseline", "clip_probe", "--config", str(config_path)])
+    assert exit_code == 1
+    run_dir = list((tmp_path / "outputs").glob("*_clip_probe_seed70"))[0]
+    status = json.loads((run_dir / "status.json").read_text())
+    assert status["status"] == "failed"
+    assert "datasets.tiny_genimage.enabled is false" in status["reason"]
+    assert not (run_dir / "predictions.jsonl").exists()
+
+
 def test_smoke_path_does_not_require_open_clip_or_torch(monkeypatch):
     import sys
 

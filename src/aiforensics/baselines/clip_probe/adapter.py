@@ -12,6 +12,10 @@ from aiforensics.baselines.base import RunResult
 from aiforensics.cache.keys import cache_key
 from aiforensics.config.models import AppConfig
 from aiforensics.data.manifest import ManifestRecord, compute_sha256, load_manifest
+from aiforensics.data.selection import (
+    selected_evaluation_manifests,
+    training_manifest_path,
+)
 from aiforensics.schemas.predictions import (
     PredictionRecord,
     validate_predictions,
@@ -141,7 +145,14 @@ class ClipProbeAdapter:
         self, config: AppConfig, log_path: Path
     ) -> tuple[list[ManifestRecord], list[ManifestRecord]]:
         data_root = config.paths.data_root
-        train_manifest_path = config.datasets.tiny_genimage.train_manifest
+
+        train_manifest_path = training_manifest_path(config)
+        if train_manifest_path is None:
+            raise Exception(
+                "clip_probe requires the tiny_genimage training split, but "
+                "datasets.tiny_genimage.enabled is false. Enable tiny_genimage "
+                "or disable clip_probe for an external-only experiment."
+            )
 
         if not train_manifest_path.exists():
             raise Exception(f"Train manifest missing: {train_manifest_path}")
@@ -151,43 +162,12 @@ class ClipProbeAdapter:
         except Exception as e:
             raise Exception(f"Train manifest validation failed: {e}") from e
 
-        eval_records: list[ManifestRecord] = []
-
-        # Check tiny_genimage dev
-        dev_manifest_path = config.datasets.tiny_genimage.dev_manifest
-        if dev_manifest_path.exists():
-            try:
-                eval_records.extend(load_manifest(dev_manifest_path, data_root=data_root))
-            except Exception as e:
-                raise Exception(f"Dev manifest validation failed: {e}") from e
-        else:
+        selection = selected_evaluation_manifests(config, strict=False)
+        for message in selection.warnings:
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"[WARNING] Dev manifest missing: {dev_manifest_path}\n")
+                f.write(f"[WARNING] {message}\n")
 
-        # Check optional external datasets (Fix P2: checks for enabled flag)
-        for opt_label, opt_enabled, opt_path in (
-            (
-                "genimage_unseen",
-                config.datasets.genimage_unseen.enabled,
-                config.datasets.genimage_unseen.manifest,
-            ),
-            (
-                "synthbuster",
-                config.datasets.synthbuster.enabled,
-                config.datasets.synthbuster.manifest,
-            ),
-        ):
-            if not opt_enabled:
-                continue
-            if not opt_path.exists():
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(f"[WARNING] {opt_label} manifest missing: {opt_path}\n")
-                continue
-            try:
-                eval_records.extend(load_manifest(opt_path, data_root=data_root))
-            except Exception as e:
-                raise Exception(f"{opt_label} manifest validation failed: {e}") from e
-
+        eval_records = list(selection.records)
         if not eval_records:
             raise Exception("No evaluation manifest exists")
 

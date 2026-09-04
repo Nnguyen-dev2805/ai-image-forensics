@@ -106,7 +106,14 @@ def _write_clip_run(
     records: list[PredictionRecord] | None = None,
     status: str = "completed",
     run_name: str = "run_clip",
+    config: AppConfig | None = None,
 ) -> Path:
+    """Create a CLIP run directory, scope-stamped for ``config`` when given.
+
+    Assistant discovery only accepts CLIP runs carrying the current config's
+    run scope, so a factory that omits ``config`` models an unscoped/foreign
+    run that must be ignored.
+    """
     run_dir = output_root / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "status.json").write_text(
@@ -114,7 +121,15 @@ def _write_clip_run(
     )
     if records is not None:
         write_predictions(records, run_dir / "predictions.jsonl")
+    if config is not None:
+        _write_clip_scope(run_dir, config)
     return run_dir
+
+
+def _write_clip_scope(run_dir: Path, config: AppConfig) -> None:
+    from aiforensics.runs.scope import SCOPE_FILENAME, compute_run_scope, write_run_scope
+
+    write_run_scope(run_dir / SCOPE_FILENAME, compute_run_scope(config))
 
 
 def _assist_input(
@@ -296,7 +311,7 @@ def test_prompt_stable_formatting():
 
 def test_discover_ignores_failed_runs(tmp_path):
     config = _make_config(tmp_path)
-    _write_clip_run(config.paths.output_root, [_clip_record()], status="failed")
+    _write_clip_run(config.paths.output_root, [_clip_record()], status="failed", config=config)
     adapter = AssistedQwenAdapter()
     with pytest.raises(Exception, match="No completed clip_probe predictions found"):
         adapter._discover_assistant_inputs(config)
@@ -304,7 +319,7 @@ def test_discover_ignores_failed_runs(tmp_path):
 
 def test_discover_ignores_deferred_runs(tmp_path):
     config = _make_config(tmp_path)
-    _write_clip_run(config.paths.output_root, [_clip_record()], status="deferred")
+    _write_clip_run(config.paths.output_root, [_clip_record()], status="deferred", config=config)
     adapter = AssistedQwenAdapter()
     with pytest.raises(Exception, match="No completed clip_probe predictions found"):
         adapter._discover_assistant_inputs(config)
@@ -312,7 +327,9 @@ def test_discover_ignores_deferred_runs(tmp_path):
 
 def test_discover_loads_completed_predictions(tmp_path):
     config = _make_config(tmp_path)
-    run_dir = _write_clip_run(config.paths.output_root, [_clip_record("1", "fake", 0.8)])
+    run_dir = _write_clip_run(
+        config.paths.output_root, [_clip_record("1", "fake", 0.8)], config=config
+    )
     adapter = AssistedQwenAdapter()
     inputs = adapter._discover_assistant_inputs(config)
     assert "1" in inputs
@@ -343,7 +360,7 @@ def test_missing_assistant_for_evaluation_sample_fails(tmp_path, monkeypatch):
 
 def test_invalid_clip_score_none_fails(tmp_path):
     config = _make_config(tmp_path)
-    _write_clip_run(config.paths.output_root, [_clip_record("1", "fake", None)])
+    _write_clip_run(config.paths.output_root, [_clip_record("1", "fake", None)], config=config)
     adapter = AssistedQwenAdapter()
     with pytest.raises(Exception, match="Invalid clip_probe prediction score"):
         adapter._discover_assistant_inputs(config)
@@ -351,7 +368,7 @@ def test_invalid_clip_score_none_fails(tmp_path):
 
 def test_invalid_clip_label_unknown_fails(tmp_path):
     config = _make_config(tmp_path)
-    _write_clip_run(config.paths.output_root, [_clip_record("1", "unknown", 0.5)])
+    _write_clip_run(config.paths.output_root, [_clip_record("1", "unknown", 0.5)], config=config)
     adapter = AssistedQwenAdapter()
     with pytest.raises(Exception, match="Invalid clip_probe prediction score"):
         adapter._discover_assistant_inputs(config)
@@ -359,8 +376,19 @@ def test_invalid_clip_label_unknown_fails(tmp_path):
 
 def test_aggregate_mean_score(tmp_path):
     config = _make_config(tmp_path)
-    _write_clip_run(config.paths.output_root, [_clip_record("1", "fake", 0.6)], run_name="run_a")
-    _write_clip_run(config.paths.output_root, [_clip_record("1", "fake", 0.8)], run_name="run_b")
+    config.baselines.clip_probe.seeds = [70, 71]
+    _write_clip_run(
+        config.paths.output_root,
+        [_clip_record("1", "fake", 0.6)],
+        run_name="001_clip_probe_seed70",
+        config=config,
+    )
+    _write_clip_run(
+        config.paths.output_root,
+        [_clip_record("1", "fake", 0.8)],
+        run_name="002_clip_probe_seed71",
+        config=config,
+    )
     adapter = AssistedQwenAdapter()
     inputs = adapter._discover_assistant_inputs(config)
     assert inputs["1"].fake_probability == pytest.approx(0.7)
@@ -369,8 +397,19 @@ def test_aggregate_mean_score(tmp_path):
 
 def test_aggregate_boundary_half_maps_fake(tmp_path):
     config = _make_config(tmp_path)
-    _write_clip_run(config.paths.output_root, [_clip_record("1", "real", 0.4)], run_name="run_a")
-    _write_clip_run(config.paths.output_root, [_clip_record("1", "fake", 0.6)], run_name="run_b")
+    config.baselines.clip_probe.seeds = [70, 71]
+    _write_clip_run(
+        config.paths.output_root,
+        [_clip_record("1", "real", 0.4)],
+        run_name="001_clip_probe_seed70",
+        config=config,
+    )
+    _write_clip_run(
+        config.paths.output_root,
+        [_clip_record("1", "fake", 0.6)],
+        run_name="002_clip_probe_seed71",
+        config=config,
+    )
     adapter = AssistedQwenAdapter()
     inputs = adapter._discover_assistant_inputs(config)
     assert inputs["1"].fake_probability == pytest.approx(0.5)
@@ -379,11 +418,106 @@ def test_aggregate_boundary_half_maps_fake(tmp_path):
 
 def test_aggregate_maps_low_prob_to_real(tmp_path):
     config = _make_config(tmp_path)
-    _write_clip_run(config.paths.output_root, [_clip_record("1", "real", 0.4)])
+    _write_clip_run(config.paths.output_root, [_clip_record("1", "real", 0.4)], config=config)
     adapter = AssistedQwenAdapter()
     inputs = adapter._discover_assistant_inputs(config)
     assert inputs["1"].fake_probability == pytest.approx(0.4)
     assert inputs["1"].classifier_pred == "real"
+
+
+# ---------------------------------------------------------------------------
+# Assistant input is bound to the current experiment, not to output_root history
+# ---------------------------------------------------------------------------
+
+
+def test_clip_run_without_scope_is_ignored(tmp_path):
+    """A CLIP run with no run_scope.json cannot be attributed to this config."""
+    config = _make_config(tmp_path)
+    _write_clip_run(config.paths.output_root, [_clip_record("1", "fake", 0.8)])
+    adapter = AssistedQwenAdapter()
+    with pytest.raises(Exception, match="No completed clip_probe predictions found"):
+        adapter._discover_assistant_inputs(config)
+
+
+def test_clip_run_from_other_dataset_slice_is_ignored(tmp_path):
+    """A CLIP run over a different evaluation slice must not feed this run."""
+    config = _make_config(tmp_path)
+    other = _make_config(tmp_path)
+    other.datasets.genimage_unseen.enabled = True
+    _write_clip_run(config.paths.output_root, [_clip_record("1", "fake", 0.8)], config=other)
+    adapter = AssistedQwenAdapter()
+    with pytest.raises(Exception, match="No completed clip_probe predictions found"):
+        adapter._discover_assistant_inputs(config)
+
+
+def test_unconfigured_seed_run_is_ignored(tmp_path):
+    """Only seeds the current config declares may contribute assistant input."""
+    config = _make_config(tmp_path)
+    config.baselines.clip_probe.seeds = [70]
+    _write_clip_run(
+        config.paths.output_root,
+        [_clip_record("1", "fake", 0.9)],
+        run_name="001_clip_probe_seed70",
+        config=config,
+    )
+    _write_clip_run(
+        config.paths.output_root,
+        [_clip_record("1", "real", 0.1)],
+        run_name="002_clip_probe_seed999",
+        config=config,
+    )
+    adapter = AssistedQwenAdapter()
+    inputs = adapter._discover_assistant_inputs(config)
+    assert adapter._counts["clip_files_used"] == 1
+    assert inputs["1"].fake_probability == pytest.approx(0.9)
+
+
+def test_reran_seed_uses_latest_run_only(tmp_path):
+    """Re-running one seed replaces its prediction instead of averaging twice."""
+    config = _make_config(tmp_path)
+    config.baselines.clip_probe.seeds = [70]
+    _write_clip_run(
+        config.paths.output_root,
+        [_clip_record("1", "real", 0.1)],
+        run_name="20260101T000000000000Z_clip_probe_seed70",
+        config=config,
+    )
+    _write_clip_run(
+        config.paths.output_root,
+        [_clip_record("1", "fake", 0.9)],
+        run_name="20260102T000000000000Z_clip_probe_seed70",
+        config=config,
+    )
+    adapter = AssistedQwenAdapter()
+    inputs = adapter._discover_assistant_inputs(config)
+    assert adapter._counts["clip_files_used"] == 1
+    assert inputs["1"].fake_probability == pytest.approx(0.9)
+
+
+def test_assistant_input_is_stable_when_foreign_history_grows(tmp_path):
+    """Adding runs from another experiment must not change assistant input."""
+    config = _make_config(tmp_path)
+    config.baselines.clip_probe.seeds = [70]
+    _write_clip_run(
+        config.paths.output_root,
+        [_clip_record("1", "fake", 0.9)],
+        run_name="001_clip_probe_seed70",
+        config=config,
+    )
+    before = AssistedQwenAdapter()._discover_assistant_inputs(config)
+
+    other = _make_config(tmp_path)
+    other.datasets.genimage_unseen.enabled = True
+    _write_clip_run(
+        config.paths.output_root,
+        [_clip_record("1", "real", 0.1)],
+        run_name="002_clip_probe_seed70",
+        config=other,
+    )
+    after = AssistedQwenAdapter()._discover_assistant_inputs(config)
+
+    assert before["1"].fake_probability == after["1"].fake_probability
+    assert before["1"].classifier_pred == after["1"].classifier_pred
 
 
 def test_extra_clip_records_ignored(tmp_path, monkeypatch):
@@ -484,6 +618,27 @@ def test_invalid_existing_manifest_fails(tmp_path):
     assert res.status == "failed"
     assert "Missing required columns" in (res.reason or "")
     assert not (tmp_path / "run_out" / "predictions.jsonl").exists()
+
+
+def test_disabled_tiny_genimage_is_ignored(tmp_path, monkeypatch):
+    """datasets.tiny_genimage.enabled=false must exclude tiny from evaluation."""
+    config = _make_config(tmp_path)
+    _write_manifest(config.datasets.tiny_genimage.dev_manifest, [_add_sample(tmp_path, "tiny1")])
+    external_manifest = tmp_path / "external.csv"
+    _write_manifest(external_manifest, [_add_sample(tmp_path, "ext1")])
+    config.datasets.genimage_unseen.enabled = True
+    config.datasets.genimage_unseen.manifest = external_manifest
+    config.datasets.tiny_genimage.enabled = False
+    config.baselines.assisted_qwen.enabled = True
+    config.baselines.assisted_qwen.allow_deferred = False
+
+    adapter = AssistedQwenAdapter()
+    _mock_assistant_inputs(monkeypatch, adapter, {"ext1": _assist_input("ext1")})
+    _mock_qwen_runtime(monkeypatch)
+    res = adapter.run(config=config, output_dir=tmp_path / "run_out", run_id="run_id")
+    assert res.status == "completed"
+    preds = load_predictions(tmp_path / "run_out" / "predictions.jsonl")
+    assert [p.sample_id for p in preds] == ["ext1"]
 
 
 # ---------------------------------------------------------------------------

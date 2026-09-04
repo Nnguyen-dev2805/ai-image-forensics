@@ -338,7 +338,8 @@ What to expect:
   status,
 - `assisted_qwen` needs completed CLIP artifacts,
 - `evaluate` writes `metrics.json` and `metrics_by_source.csv` beside each
-  completed `predictions.jsonl`,
+  completed `predictions.jsonl` that belongs to the current config, and reports
+  how many runs it skipped as out of scope,
 - `report` writes the configured Markdown report and exits `0` even when some
   baselines are `deferred`, `failed`, or `missing`.
 
@@ -347,6 +348,7 @@ What to expect:
 ```text
 <OUTPUT_ROOT>/manifest_validation.json
 <OUTPUT_ROOT>/<run_id>/config.yaml
+<OUTPUT_ROOT>/<run_id>/run_scope.json
 <OUTPUT_ROOT>/<run_id>/environment.json
 <OUTPUT_ROOT>/<run_id>/logs.txt
 <OUTPUT_ROOT>/<run_id>/status.json
@@ -356,9 +358,19 @@ What to expect:
 <OUTPUT_ROOT>/<configured report filename>
 ```
 
-`status.json` is authoritative for a run's outcome. The report selects the latest
-run per baseline slot, so historical runs in the same `output_root` do not
-contaminate comparisons.
+`status.json` is authoritative for a run's outcome. `run_scope.json` records the
+experiment identity: project phase, `data_root`, which dataset slices are
+enabled, their manifests, and a digest of the evaluation sample ids.
+
+`evaluate`, `report`, and `assisted_qwen` only consider runs whose
+`run_scope.json` matches the config you pass them, so one `output_root` can hold
+smoke, full, and external-only experiments without cross-contamination. Two
+consequences worth knowing:
+
+- Runs created before scopes existed carry no `run_scope.json` and are skipped;
+  re-run those baselines if you still need them in a report.
+- Switching a dataset flag or manifest changes the scope, so previously
+  completed runs become `missing` for the new config rather than being reused.
 
 Persistence:
 
