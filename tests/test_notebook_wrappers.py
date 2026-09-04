@@ -410,6 +410,17 @@ def test_notebook_exposes_build_manifests_switch(platform: str, notebooks: dict[
 
 
 @pytest.mark.parametrize("platform", PLATFORMS)
+def test_notebook_can_persist_hf_cache(platform: str, notebooks: dict[str, dict]) -> None:
+    """Model weights survive session resets only if HF_HOME is redirected."""
+    code = _code_source(notebooks[platform])
+    assert re.search(r"^\s*PERSIST_HF_CACHE\s*=\s*(?:True|False)", code, re.MULTILINE)
+    # The %%bash run cells must inherit the setting, so it goes through os.environ.
+    assert 'os.environ["HF_HOME"]' in code
+    # The cache must live in persistent storage, not the ephemeral default.
+    assert "hf-cache" in code
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
 def test_prepare_build_flag_is_driven_by_the_switch_not_hardcoded(
     platform: str, notebooks: dict[str, dict]
 ) -> None:

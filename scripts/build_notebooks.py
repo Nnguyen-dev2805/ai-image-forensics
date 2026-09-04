@@ -394,6 +394,20 @@ NPR_CHECKPOINT_PATH = PERSIST_ROOT / "checkpoints" / "NPR.pth"
 # manifest CSVs below already exist. Building overwrites those CSV files.
 BUILD_MANIFESTS = True
 
+# Set True to keep HuggingFace model weights (~6 GB for Qwen) inside persistent
+# storage, so a saved notebook version restores them without re-downloading.
+# Costs output quota and makes "Save Version" slower. False keeps the default
+# ephemeral cache, which is fine when downloads are cheap.
+PERSIST_HF_CACHE = True
+if PERSIST_HF_CACHE:
+    HF_CACHE_ROOT = PERSIST_ROOT / "hf-cache"
+    HF_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    # The %%bash run cells inherit this, so the CLI's transformers downloads
+    # land in persistent storage too.
+    os.environ["HF_HOME"] = str(HF_CACHE_ROOT)
+else:
+    HF_CACHE_ROOT = None
+
 # Manifest filenames are separate config fields today; override them if your
 # provisioned manifests use different names.
 TINY_TRAIN_MANIFEST = MANIFEST_ROOT / "tiny_genimage_train.csv"
@@ -411,6 +425,7 @@ print("cache root   :", CACHE_ROOT)
 print("output root  :", OUTPUT_ROOT)
 print("external root:", EXTERNAL_ROOT)
 print("npr ckpt     :", NPR_CHECKPOINT_PATH)
+print("hf cache     :", HF_CACHE_ROOT if HF_CACHE_ROOT else "(default, ephemeral)")
 print("build manifests:", BUILD_MANIFESTS)
 """
 
@@ -447,6 +462,20 @@ INPUT_CHECKPOINT_DIR = KAGGLE_INPUT_ROOT / "<your-npr-checkpoint-dataset>"
 BUILD_MANIFESTS = True
 INPUT_MANIFEST_DIR = KAGGLE_INPUT_ROOT / "<your-manifests-dataset>"
 
+# Set True to keep HuggingFace model weights (~6 GB for Qwen) inside
+# /kaggle/working, so saved notebook output restores them without a re-download
+# after a session reset. Costs output quota (~6 GB of ~20 GB) and makes saving
+# slower. False keeps the default ephemeral cache under /root/.cache.
+PERSIST_HF_CACHE = True
+if PERSIST_HF_CACHE:
+    HF_CACHE_ROOT = KAGGLE_WORKING_ROOT / "hf-cache"
+    HF_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    # The %%bash run cells inherit this, so the CLI's transformers downloads
+    # land in persistent storage too.
+    os.environ["HF_HOME"] = str(HF_CACHE_ROOT)
+else:
+    HF_CACHE_ROOT = None
+
 # Read-only inputs.
 DATA_ROOT = INPUT_DATA_DIR
 NPR_CHECKPOINT_PATH = INPUT_CHECKPOINT_DIR / "NPR.pth"
@@ -478,6 +507,7 @@ if not BUILD_MANIFESTS and MANIFEST_ROOT.is_relative_to(KAGGLE_INPUT_ROOT):
 print("data root    : (read-only)", DATA_ROOT)
 print("manifest root:", "(writable)" if BUILD_MANIFESTS else "(read-only)", MANIFEST_ROOT)
 print("npr ckpt     : (read-only)", NPR_CHECKPOINT_PATH)
+print("hf cache     :", HF_CACHE_ROOT if HF_CACHE_ROOT else "(default, ephemeral)")
 print("cache root   : (writable)", CACHE_ROOT)
 print("output root  : (writable)", OUTPUT_ROOT)
 print("external root: (writable)", EXTERNAL_ROOT)
