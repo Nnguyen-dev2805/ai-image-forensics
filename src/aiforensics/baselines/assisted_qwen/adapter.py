@@ -11,6 +11,7 @@ from aiforensics.baselines.base import BaselineAdapter, RunResult
 from aiforensics.baselines.qwen_vl.cache import read_qwen_cache, write_qwen_cache
 from aiforensics.baselines.qwen_vl.parsing import parse_qwen_output
 from aiforensics.baselines.qwen_vl.runtime import (
+    QwenOutOfMemoryError,
     generate_one_image,
     get_qwen_device,
     load_model,
@@ -148,6 +149,7 @@ class AssistedQwenAdapter(BaselineAdapter):
                 f.write(f"Processed {len(records)} records.\n")
                 f.write(f"Model ID: {cfg.base_model_id}\n")
                 f.write(f"Prompt ID: {cfg.prompt_id}\n")
+                f.write(f"Compute dtype: {cfg.dtype}\n")
                 f.write(f"Resolved device: {device}\n")
                 f.write(f"CLIP Files Used: {self._counts['clip_files_used']}\n")
                 if hasattr(self, "_clip_files"):
@@ -173,6 +175,34 @@ class AssistedQwenAdapter(BaselineAdapter):
                 reason=None,
             )
 
+        except QwenOutOfMemoryError as e:
+            # Exhausted VRAM is an environment limit, so it follows the same
+            # deferral policy as a missing GPU rather than reporting a failure.
+            reason = f"GPU out of memory: {e}"
+            try:
+                if (run_dir / "predictions.jsonl").exists():
+                    (run_dir / "predictions.jsonl").unlink()
+            except Exception:
+                pass
+            deferrable = config.baselines.assisted_qwen.allow_deferred
+            status = "deferred" if deferrable else "failed"
+            if deferrable:
+                logger.info("Run deferred: %s", reason)
+            else:
+                logger.error("Run failed: %s", reason)
+            with open(run_dir / "logs.txt", "a", encoding="utf-8") as f:
+                f.write(f"Run {status}: {reason}\n")
+            return RunResult(
+                baseline=self.name,
+                run_id=run_id,
+                status=status,
+                output_dir=run_dir,
+                prediction_path=None,
+                log_path=run_dir / "logs.txt",
+                environment_path=run_dir / "environment.json",
+                status_path=run_dir / "status.json",
+                reason=reason,
+            )
         except BaselineDeferredError as e:
             logger.info(f"Run deferred: {e}")
             try:
@@ -395,9 +425,10 @@ class AssistedQwenAdapter(BaselineAdapter):
                         "assistant_source": cfg.assistant_source,
                         "classifier_pred": a_in.classifier_pred,
                         "fake_probability": format(a_in.fake_probability, ".12g"),
+                        "dtype": cfg.dtype,
                         "temperature": str(cfg.temperature),
                         "max_new_tokens": str(cfg.max_new_tokens),
-                        "output_cache_version": "assisted_qwen_raw_v1",
+                        "output_cache_version": "assisted_qwen_raw_v2",
                     }
                 )
 
@@ -431,7 +462,11 @@ class AssistedQwenAdapter(BaselineAdapter):
                         config.runtime.device, cfg.allow_deferred, BaselineDeferredError
                     )
                     model, processor = load_model(
-                        cfg.base_model_id, device, cfg.allow_deferred, BaselineDeferredError
+                        cfg.base_model_id,
+                        device,
+                        cfg.allow_deferred,
+                        BaselineDeferredError,
+                        dtype=cfg.dtype,
                     )
 
                 raw_output = generate_one_image(

@@ -535,9 +535,10 @@ def test_cache_hit_bypasses_model(monkeypatch, tmp_path):
             "sample_checksum": csum,
             "model_id": "M",
             "prompt_id": "qwen_json_v1",
+            "dtype": "bfloat16",
             "temperature": "0.0",
             "max_new_tokens": "128",
-            "output_cache_version": "qwen_vl_raw_v2",
+            "output_cache_version": "qwen_vl_raw_v3",
         }
     )
 
@@ -640,9 +641,10 @@ def test_cache_key_changes(tmp_path):
                 "sample_checksum": record.checksum,
                 "model_id": cfg.baselines.qwen_vl.model_id,
                 "prompt_id": cfg.baselines.qwen_vl.prompt_id,
+                "dtype": cfg.baselines.qwen_vl.dtype,
                 "temperature": str(cfg.baselines.qwen_vl.temperature),
                 "max_new_tokens": str(cfg.baselines.qwen_vl.max_new_tokens),
-                "output_cache_version": "qwen_vl_raw_v2",
+                "output_cache_version": "qwen_vl_raw_v3",
             }
         )
 
@@ -703,9 +705,10 @@ def test_corrupt_cache_recomputed(monkeypatch, tmp_path):
             "sample_checksum": csum,
             "model_id": "M",
             "prompt_id": "qwen_json_v1",
+            "dtype": "bfloat16",
             "temperature": "0.0",
             "max_new_tokens": "128",
-            "output_cache_version": "qwen_vl_raw_v2",
+            "output_cache_version": "qwen_vl_raw_v3",
         }
     )
 

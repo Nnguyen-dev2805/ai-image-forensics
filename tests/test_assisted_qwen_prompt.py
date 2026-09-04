@@ -772,7 +772,7 @@ def test_prediction_validation_failure_cleanup(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _assisted_cache_key(config: AppConfig, csum: str, version: str = "assisted_qwen_raw_v1"):
+def _assisted_cache_key(config: AppConfig, csum: str, version: str = "assisted_qwen_raw_v2"):
     cfg = config.baselines.assisted_qwen
     return cache_key(
         {
@@ -783,6 +783,7 @@ def _assisted_cache_key(config: AppConfig, csum: str, version: str = "assisted_q
             "assistant_source": cfg.assistant_source,
             "classifier_pred": "fake",
             "fake_probability": format(0.8, ".12g"),
+            "dtype": cfg.dtype,
             "temperature": str(cfg.temperature),
             "max_new_tokens": str(cfg.max_new_tokens),
             "output_cache_version": version,
@@ -794,7 +795,7 @@ def _write_cache_entry(
     config: AppConfig,
     csum: str,
     payload: str,
-    version: str = "assisted_qwen_raw_v1",
+    version: str = "assisted_qwen_raw_v2",
 ) -> Path:
     key = _assisted_cache_key(config, csum, version)
     cache_dir = config.paths.cache_root / "assisted_qwen" / "raw_outputs"
