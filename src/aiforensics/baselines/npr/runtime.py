@@ -138,7 +138,10 @@ def _run_inference(
         raise ValueError(f"Batch size must be >= 1, got {batch_size}")
 
     results: list[tuple[str, float]] = []
-    for start in range(0, len(rows), batch_size):
+    from aiforensics.progress import progress_iter
+
+    batch_starts = list(range(0, len(rows), batch_size))
+    for start in progress_iter("npr", batch_starts, unit="batch"):
         chunk = rows[start : start + batch_size]
         arrays = []
         for row in chunk:

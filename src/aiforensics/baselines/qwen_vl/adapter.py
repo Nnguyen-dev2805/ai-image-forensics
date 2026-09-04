@@ -9,6 +9,7 @@ from aiforensics.cache.keys import cache_key
 from aiforensics.config.models import AppConfig
 from aiforensics.data.manifest import ManifestRecord
 from aiforensics.data.selection import selected_evaluation_manifests
+from aiforensics.progress import progress_iter
 from aiforensics.schemas.predictions import (
     PredictionRecord,
     validate_predictions,
@@ -279,7 +280,10 @@ class QwenVLAdapter(BaselineAdapter):
 
         predictions = []
 
-        for record in records:
+        # One live line for a run that can take hours; milestone lines land in
+        # the log file so a dead session still shows how far it got.
+        progress_records = progress_iter("qwen_vl", records, log_every=50)
+        for record in progress_records:
             if not record.path.exists():
                 raise Exception(f"Image missing: {record.path}")
 
@@ -336,6 +340,12 @@ class QwenVLAdapter(BaselineAdapter):
                 counts["recovered"] += 1
             else:
                 counts["failed"] += 1
+
+            progress_records.set_postfix(
+                parsed=counts["parsed"],
+                recovered=counts["recovered"],
+                failed=counts["failed"],
+            )
 
             predictions.append(
                 PredictionRecord(

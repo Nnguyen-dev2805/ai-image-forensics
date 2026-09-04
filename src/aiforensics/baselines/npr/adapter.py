@@ -292,24 +292,28 @@ class NPRAdapter:
     # ------------------------------------------------------------------ helpers
 
     def _run_subprocess(self, command: list[str], log_path: Path) -> int:
-        """Run the isolated NPR runtime subprocess; returns its exit code."""
+        """Run the isolated NPR runtime subprocess; returns its exit code.
+
+        stdout is captured for ``logs.txt`` while stderr streams through to the
+        caller's terminal, so the runtime's live progress bar stays visible in
+        the notebook cell instead of appearing only after the run ends.
+        """
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            with open(log_path, "a", encoding="utf-8") as log_file:
+                result = subprocess.run(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=None,
+                    text=True,
+                    check=False,
+                )
+                # stderr already reached the terminal live; mirror stdout only.
+                if result.stdout:
+                    log_file.write(result.stdout)
         except OSError as exc:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(f"[FAILED] Could not start NPR runtime subprocess: {exc}\n")
             return 1
-        if result.stdout:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(result.stdout)
-        if result.stderr:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(result.stderr)
         return result.returncode
 
     def _read_score_rows(self, scores_path: Path) -> list[dict[str, object]]:

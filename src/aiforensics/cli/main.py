@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import pathlib
 import sys
 from typing import Any
@@ -483,7 +484,11 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Dispatch a CLI invocation to the matching placeholder handler."""
+    """Dispatch a CLI invocation to the matching handler."""
+    # INFO to stderr: milestone/progress lines (per-image progress, deferral
+    # reasons) belong in the calling notebook cell, not just in logs.txt which
+    # is only written at the end of a run.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = build_parser()
     args = parser.parse_args(argv)
     return int(args.handler(args))

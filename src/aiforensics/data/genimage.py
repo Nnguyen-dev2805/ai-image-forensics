@@ -275,10 +275,12 @@ def _to_records(
     warnings: list[str],
 ) -> list[ManifestRecord]:
     """Checksum candidates and drop content already claimed by another split."""
+    from aiforensics.progress import progress_iter
+
     records: list[ManifestRecord] = []
     seen_ids: set[str] = set()
 
-    for candidate in candidates:
+    for candidate in progress_iter(f"checksum {split}", candidates, log_every=500):
         try:
             checksum = compute_sha256(candidate.path)
         except OSError as exc:

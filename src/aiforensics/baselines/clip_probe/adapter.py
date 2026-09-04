@@ -332,7 +332,10 @@ class ClipProbeAdapter:
             return np.vstack(embeddings_by_index)
 
         try:
-            for batch_start in range(0, len(to_compute_indices), batch_size):
+            from aiforensics.progress import progress_iter
+
+            batch_ranges = list(range(0, len(to_compute_indices), batch_size))
+            for batch_start in progress_iter("clip_probe", batch_ranges, unit="batch", log_every=0):
                 batch_indices = to_compute_indices[batch_start : batch_start + batch_size]
                 tensors = []
                 for idx in batch_indices:

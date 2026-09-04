@@ -569,6 +569,21 @@ class TestFailureModes:
 # ---------------------------------------------------------------------------
 
 
+class TestProgressVisibility:
+    def test_checksum_progress_is_visible(self, tmp_path, capsys):
+        """prepare checksums thousands of images; the cell must show movement."""
+        root = tmp_path / "data"
+        _make_tree(root, "sdv5", train_ai=6, train_nature=6, val_ai=4, val_nature=4)
+        config = _config(
+            tmp_path, tiny_generators=["sdv5"], unseen_generators=[], unseen_enabled=False
+        )
+
+        build_genimage_manifests(config)
+        err = capsys.readouterr().err
+        assert "checksum train" in err
+        assert "checksum dev" in err
+
+
 class TestManifestContract:
     def test_written_manifests_pass_validation(self, tmp_path):
         from aiforensics.data.manifest import validate_manifest
