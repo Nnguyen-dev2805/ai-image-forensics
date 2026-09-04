@@ -20,6 +20,7 @@ from aiforensics.cache.keys import cache_key
 from aiforensics.config.models import AppConfig
 from aiforensics.data.manifest import ManifestRecord
 from aiforensics.data.selection import selected_evaluation_manifests
+from aiforensics.progress import progress_iter
 from aiforensics.runs.artifacts import clip_seed_from_run_id
 from aiforensics.runs.scope import RunScope, compute_run_scope, scope_matches
 from aiforensics.schemas.predictions import (
@@ -391,7 +392,10 @@ class AssistedQwenAdapter(BaselineAdapter):
 
         predictions = []
 
-        for record in records:
+        # One live line for a run that can take hours; milestone lines land in
+        # the log file so a dead session still shows how far it got.
+        progress_records = progress_iter("assisted_qwen", records, log_every=50)
+        for record in progress_records:
             if record.sample_id not in assistant_inputs:
                 raise Exception(
                     f"Missing clip_probe assistant prediction for sample_id={record.sample_id}"
@@ -484,6 +488,12 @@ class AssistedQwenAdapter(BaselineAdapter):
                 counts["recovered"] += 1
             else:
                 counts["failed"] += 1
+
+            progress_records.set_postfix(
+                parsed=counts["parsed"],
+                recovered=counts["recovered"],
+                failed=counts["failed"],
+            )
 
             predictions.append(
                 PredictionRecord(
