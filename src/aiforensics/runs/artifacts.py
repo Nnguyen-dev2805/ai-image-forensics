@@ -14,11 +14,22 @@ from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
-__all__ = ["RunStatus", "create_run_dir", "write_environment", "write_status"]
+__all__ = [
+    "CLIP_SEED_SUFFIX_RE",
+    "RunStatus",
+    "clip_seed_from_run_id",
+    "create_run_dir",
+    "write_environment",
+    "write_status",
+]
 
 logger = logging.getLogger(__name__)
 
 _MAX_DIR_ATTEMPTS = 5
+
+# Single source of truth for the CLI run-id seed convention created by
+# create_run_dir(output_root, "clip_probe", run_name=f"seed{seed}").
+CLIP_SEED_SUFFIX_RE = re.compile(r"_clip_probe_seed(\d+)$")
 
 _TRACKED_PACKAGES: tuple[str, ...] = (
     "numpy",
@@ -64,6 +75,12 @@ class RunStatus(BaseModel):
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def clip_seed_from_run_id(run_id: str) -> int | None:
+    """Return the CLIP seed encoded in a run id, or ``None`` when absent."""
+    match = CLIP_SEED_SUFFIX_RE.search(run_id)
+    return None if match is None else int(match.group(1))
 
 
 def _slugify(value: str, field_name: str) -> str:

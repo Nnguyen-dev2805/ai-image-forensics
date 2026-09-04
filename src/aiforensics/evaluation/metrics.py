@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
+from aiforensics.runs.scope import RunScope, scope_matches
 from aiforensics.schemas.predictions import (
     PredictionRecord,
     load_predictions,
@@ -172,6 +173,8 @@ def write_metrics_outputs(
 def evaluate_prediction_file(
     prediction_path: Path | str,
     output_dir: Path | str | None = None,
+    *,
+    manifest_sample_ids: set[str] | None = None,
 ) -> tuple[Path, Path]:
     p_path = Path(prediction_path)
     if not p_path.is_file():
@@ -186,7 +189,7 @@ def evaluate_prediction_file(
         raise MetricsError(f"Failed to load predictions: {e}") from e
 
     # validate
-    res = validate_predictions(records)
+    res = validate_predictions(records, manifest_sample_ids=manifest_sample_ids)
     if not res.is_valid:
         raise MetricsError(f"Prediction validation failed for {p_path}: {res.errors}")
 
@@ -203,3 +206,25 @@ def discover_prediction_files(output_root: Path | str) -> list[Path]:
     files = list(root.rglob("predictions.jsonl"))
 
     return sorted(files)
+
+
+def discover_scoped_prediction_files(
+    output_root: Path | str,
+    expected_scope: RunScope,
+) -> tuple[list[Path], list[Path]]:
+    """Split discovered prediction files into current-scope and out-of-scope.
+
+    Metrics belong to the experiment that produced them, so evaluation must not
+    treat every ``predictions.jsonl`` under a shared ``output_root`` as part of
+    the current config. Files whose run directory does not carry the current
+    run scope are returned separately so callers can report them instead of
+    evaluating them.
+    """
+    in_scope: list[Path] = []
+    out_of_scope: list[Path] = []
+    for path in discover_prediction_files(output_root):
+        if scope_matches(path.parent, expected_scope):
+            in_scope.append(path)
+        else:
+            out_of_scope.append(path)
+    return in_scope, out_of_scope

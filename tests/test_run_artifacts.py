@@ -7,7 +7,13 @@ import pytest
 from pydantic import ValidationError
 
 import aiforensics.runs.artifacts as artifacts
-from aiforensics.runs import RunStatus, create_run_dir, write_environment, write_status
+from aiforensics.runs import (
+    RunStatus,
+    clip_seed_from_run_id,
+    create_run_dir,
+    write_environment,
+    write_status,
+)
 
 
 def _make_status(status: str = "completed", reason: str | None = None) -> RunStatus:
@@ -41,6 +47,26 @@ def test_valid_run_name_appears_in_run_dir_name(tmp_path):
     run_dir = create_run_dir(tmp_path, "clip_probe", run_name="seed70")
     assert "seed70" in run_dir.name
     assert run_dir.name.endswith("_clip_probe_seed70")
+
+
+class TestClipSeedFromRunId:
+    """The run-id seed convention has one parser shared by every consumer."""
+
+    def test_seed_is_parsed_from_cli_created_run_id(self, tmp_path):
+        run_dir = create_run_dir(tmp_path, "clip_probe", run_name="seed71")
+        assert clip_seed_from_run_id(run_dir.name) == 71
+
+    def test_multi_digit_seed_is_parsed(self):
+        assert clip_seed_from_run_id("20260101T000000000000Z_clip_probe_seed1234") == 1234
+
+    def test_suffixless_clip_run_has_no_seed(self):
+        assert clip_seed_from_run_id("20260101T000000000000Z_clip_probe") is None
+
+    def test_other_baseline_run_has_no_seed(self):
+        assert clip_seed_from_run_id("20260101T000000000000Z_qwen_vl") is None
+
+    def test_suffix_must_be_at_the_end(self):
+        assert clip_seed_from_run_id("001_clip_probe_seed70_extra") is None
 
 
 def test_run_name_none_omits_suffix(tmp_path):

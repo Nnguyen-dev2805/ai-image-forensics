@@ -218,6 +218,27 @@ def test_cli_npr_smoke_defers_with_zero_external_work(
     assert status["status"] == "deferred"
 
 
+def test_run_stamps_run_scope_matching_current_config(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every run directory records the experiment identity it belongs to."""
+    from aiforensics.config.load import load_config
+    from aiforensics.runs.scope import SCOPE_FILENAME, compute_run_scope, read_run_scope
+
+    cfg_path = _build_tmp_config(tmp_path)
+    exit_code = main(["run", "--baseline", "clip_probe", "--config", str(cfg_path)])
+    assert exit_code == 0
+
+    run_dirs = list((tmp_path / "outputs").glob("*_clip_probe_seed70"))
+    assert len(run_dirs) == 1
+    scope_path = run_dirs[0] / SCOPE_FILENAME
+    assert scope_path.is_file()
+
+    written = read_run_scope(scope_path)
+    assert written is not None
+    assert written.scope_id == compute_run_scope(load_config(cfg_path)).scope_id
+
+
 def test_cli_npr_completed_returns_zero(
     tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -160,6 +160,7 @@ def _write_status(
     *,
     reason: str | None = None,
     ended_at: str = _TS_EARLY,
+    config=None,
 ) -> Path:
     from aiforensics.runs.artifacts import RunStatus
 
@@ -176,7 +177,22 @@ def _write_status(
             ended_at=ended_at,
         ),
     )
+    if config is not None:
+        _write_scope(run_dir, config)
     return path
+
+
+def _write_scope(run_dir: Path, config) -> None:
+    """Stamp a run directory with the scope the CLI would write for ``config``.
+
+    Discovery only selects runs belonging to the current experiment, so an
+    artifact factory must declare which config produced it. Passing no config
+    models a pre-scope or foreign run directory.
+    """
+    from aiforensics.runs.scope import SCOPE_FILENAME, compute_run_scope, write_run_scope
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    write_run_scope(run_dir / SCOPE_FILENAME, compute_run_scope(config))
 
 
 def _overall_metrics(**overrides) -> dict[str, float | None]:
@@ -223,9 +239,10 @@ def _complete_run(
     overall: dict[str, float | None] | None = None,
     by_source: list[tuple[str, int, dict[str, float | None]]] | None = None,
     total_records: int = 2,
+    config=None,
 ) -> Path:
     run_dir = output_root / run_id
-    _write_status(run_dir, baseline, "completed", reason=reason, ended_at=ended_at)
+    _write_status(run_dir, baseline, "completed", reason=reason, ended_at=ended_at, config=config)
     _write_metrics(
         run_dir,
         total_records=total_records,
@@ -525,9 +542,10 @@ def _deferred_run(
     ended_at: str = _TS_EARLY,
     reason: str = "deps unavailable",
     seed: int | None = None,
+    config=None,
 ) -> Path:
     run_dir = output_root / run_id
-    _write_status(run_dir, baseline, "deferred", reason=reason, ended_at=ended_at)
+    _write_status(run_dir, baseline, "deferred", reason=reason, ended_at=ended_at, config=config)
     return run_dir
 
 
@@ -538,9 +556,10 @@ def _failed_run(
     *,
     ended_at: str = _TS_EARLY,
     reason: str = "boom",
+    config=None,
 ) -> Path:
     run_dir = output_root / run_id
-    _write_status(run_dir, baseline, "failed", reason=reason, ended_at=ended_at)
+    _write_status(run_dir, baseline, "failed", reason=reason, ended_at=ended_at, config=config)
     return run_dir
 
 
@@ -583,10 +602,10 @@ class TestDiscovery:
         config = _make_config(tmp_path)
         root = config.paths.output_root
         root.mkdir(parents=True)
-        old = _complete_run(root, "001_qwen_vl", "qwen_vl", ended_at=_TS_EARLY)
+        old = _complete_run(root, "001_qwen_vl", "qwen_vl", ended_at=_TS_EARLY, config=config)
         _write_metrics(old, overall=_overall_metrics(accuracy=0.5))
         new_dir = root / "002_qwen_vl"
-        _write_status(new_dir, "qwen_vl", "completed", ended_at=_TS_LATE)
+        _write_status(new_dir, "qwen_vl", "completed", ended_at=_TS_LATE, config=config)
         _write_metrics(new_dir, overall=_overall_metrics(accuracy=0.99))
         (new_dir / "predictions.jsonl").touch()
 
@@ -600,8 +619,10 @@ class TestDiscovery:
         config = _make_config(tmp_path)
         root = config.paths.output_root
         root.mkdir(parents=True)
-        _complete_run(root, "001_qwen_vl", "qwen_vl", ended_at=_TS_EARLY)
-        _failed_run(root, "002_qwen_vl", "qwen_vl", ended_at=_TS_LATE, reason="exploded")
+        _complete_run(root, "001_qwen_vl", "qwen_vl", ended_at=_TS_EARLY, config=config)
+        _failed_run(
+            root, "002_qwen_vl", "qwen_vl", ended_at=_TS_LATE, reason="exploded", config=config
+        )
 
         runs = md.discover_run_summaries(config)
         qwen = next(r for r in runs if r.baseline == "qwen_vl")
@@ -615,8 +636,8 @@ class TestDiscovery:
         config.baselines.clip_probe.seeds = [70, 71]
         root = config.paths.output_root
         root.mkdir(parents=True)
-        _complete_run(root, "001_clip_probe_seed70", "clip_probe", ended_at=_TS_LATE)
-        _failed_run(root, "002_clip_probe_seed71", "clip_probe", ended_at=_TS_LATE)
+        _complete_run(root, "001_clip_probe_seed70", "clip_probe", ended_at=_TS_LATE, config=config)
+        _failed_run(root, "002_clip_probe_seed71", "clip_probe", ended_at=_TS_LATE, config=config)
 
         runs = md.discover_run_summaries(config)
         by_seed = {r.seed: r for r in runs if r.baseline == "clip_probe"}
@@ -632,7 +653,7 @@ class TestDiscovery:
         dir_a = root / "run_a"
         dir_b = root / "run_b"
         for run_dir in (dir_a, dir_b):
-            _write_status(run_dir, "qwen_vl", "completed", ended_at=_TS_LATE)
+            _write_status(run_dir, "qwen_vl", "completed", ended_at=_TS_LATE, config=config)
             _write_metrics(run_dir)
             (run_dir / "predictions.jsonl").touch()
         _write_metrics(dir_a, total_records=1)
@@ -647,8 +668,8 @@ class TestDiscovery:
         config = _make_config(tmp_path)
         root = config.paths.output_root
         root.mkdir(parents=True)
-        _complete_run(root, "001_something", "mystery_baseline")
-        _complete_run(root, "002_clip_probe_seed70", "clip_probe")
+        _complete_run(root, "001_something", "mystery_baseline", config=config)
+        _complete_run(root, "002_clip_probe_seed70", "clip_probe", config=config)
 
         runs = md.discover_run_summaries(config)
         assert {r.baseline for r in runs} == {"clip_probe", "qwen_vl", "assisted_qwen", "npr"}
@@ -659,7 +680,7 @@ class TestDiscovery:
         config = _make_config(tmp_path)
         root = config.paths.output_root
         root.mkdir(parents=True)
-        _complete_run(root, "001_clip_probe", "clip_probe")  # no seed suffix
+        _complete_run(root, "001_clip_probe", "clip_probe", config=config)  # no seed suffix
         runs = md.discover_run_summaries(config)
         clip = next(r for r in runs if r.baseline == "clip_probe")
         assert clip.status == "missing"
@@ -669,8 +690,8 @@ class TestDiscovery:
         config.baselines.clip_probe.enabled = False
         root = config.paths.output_root
         root.mkdir(parents=True)
-        _complete_run(root, "001_clip_probe", "clip_probe")
-        _complete_run(root, "002_clip_probe_seed70", "clip_probe")
+        _complete_run(root, "001_clip_probe", "clip_probe", config=config)
+        _complete_run(root, "002_clip_probe_seed70", "clip_probe", config=config)
 
         runs = md.discover_run_summaries(config)
         clip = next(r for r in runs if r.baseline == "clip_probe")
@@ -682,7 +703,7 @@ class TestDiscovery:
         config = _make_config(tmp_path)
         root = config.paths.output_root
         root.mkdir(parents=True)
-        _complete_run(root, "001_clip_probe_seed70", "clip_probe")
+        _complete_run(root, "001_clip_probe_seed70", "clip_probe", config=config)
         bad = root / "002_garbage"
         bad.mkdir()
         (bad / "status.json").write_text("not json", encoding="utf-8")
@@ -695,7 +716,7 @@ class TestDiscovery:
         root = config.paths.output_root
         root.mkdir(parents=True)
         run_dir = root / "001_qwen_vl"
-        _write_status(run_dir, "qwen_vl", "completed", ended_at=_TS_LATE)
+        _write_status(run_dir, "qwen_vl", "completed", ended_at=_TS_LATE, config=config)
         (run_dir / "predictions.jsonl").touch()
 
         with pytest.raises(ReportingError, match="aiforensics evaluate"):
@@ -706,7 +727,7 @@ class TestDiscovery:
         root = config.paths.output_root
         root.mkdir(parents=True)
         run_dir = root / "001_qwen_vl"
-        _write_status(run_dir, "qwen_vl", "completed", ended_at=_TS_LATE)
+        _write_status(run_dir, "qwen_vl", "completed", ended_at=_TS_LATE, config=config)
         _write_metrics(run_dir)
 
         with pytest.raises(ReportingError, match="predictions.jsonl"):
@@ -716,7 +737,7 @@ class TestDiscovery:
         config = _make_config(tmp_path)
         root = config.paths.output_root
         root.mkdir(parents=True)
-        run_dir = _failed_run(root, "001_qwen_vl", "qwen_vl", ended_at=_TS_LATE)
+        run_dir = _failed_run(root, "001_qwen_vl", "qwen_vl", ended_at=_TS_LATE, config=config)
         # Stale metrics from an earlier completed attempt must not be included.
         _write_metrics(run_dir, total_records=99, overall=_overall_metrics(accuracy=1.0))
 
@@ -730,12 +751,50 @@ class TestDiscovery:
         config = _make_config(tmp_path)
         root = config.paths.output_root
         root.mkdir(parents=True)
-        _deferred_run(root, "001_npr", "npr", ended_at=_TS_LATE, reason="CUDA unavailable")
+        _deferred_run(
+            root, "001_npr", "npr", ended_at=_TS_LATE, reason="CUDA unavailable", config=config
+        )
 
         runs = md.discover_run_summaries(config)
         npr = next(r for r in runs if r.baseline == "npr")
         assert npr.status == "deferred"
         assert npr.reason == "CUDA unavailable"
+
+    def test_run_without_scope_is_not_selected(self, tmp_path):
+        """A run directory with no run_scope.json cannot be proven to belong here."""
+        config = _make_config(tmp_path)
+        root = config.paths.output_root
+        root.mkdir(parents=True)
+        _complete_run(root, "001_qwen_vl", "qwen_vl", ended_at=_TS_LATE)  # no config -> no scope
+
+        runs = md.discover_run_summaries(config)
+        qwen = next(r for r in runs if r.baseline == "qwen_vl")
+        assert qwen.status == "missing"
+
+    def test_run_from_different_dataset_slice_is_not_selected(self, tmp_path):
+        """Changing the evaluation slice makes older runs foreign, not current."""
+        other = _make_config(tmp_path)
+        other.datasets.genimage_unseen.enabled = True
+        config = _make_config(tmp_path)
+        root = config.paths.output_root
+        root.mkdir(parents=True)
+        _complete_run(root, "001_qwen_vl", "qwen_vl", ended_at=_TS_LATE, config=other)
+
+        runs = md.discover_run_summaries(config)
+        qwen = next(r for r in runs if r.baseline == "qwen_vl")
+        assert qwen.status == "missing"
+
+    def test_same_config_scope_is_selected(self, tmp_path):
+        """The positive control for scope filtering: same config still matches."""
+        config = _make_config(tmp_path)
+        root = config.paths.output_root
+        root.mkdir(parents=True)
+        _complete_run(root, "001_qwen_vl", "qwen_vl", ended_at=_TS_LATE, config=config)
+
+        runs = md.discover_run_summaries(config)
+        qwen = next(r for r in runs if r.baseline == "qwen_vl")
+        assert qwen.status == "completed"
+        assert qwen.run_id == "001_qwen_vl"
 
     def test_discovery_is_network_free(self, tmp_path, monkeypatch):
         """Reporting discovery must not invoke git or network helpers."""
@@ -749,7 +808,7 @@ class TestDiscovery:
         config = _make_config(tmp_path)
         root = config.paths.output_root
         root.mkdir(parents=True)
-        _complete_run(root, "001_clip_probe_seed70", "clip_probe")
+        _complete_run(root, "001_clip_probe_seed70", "clip_probe", config=config)
 
         runs = md.discover_run_summaries(config)
         assert len(runs) == 4  # clip completed + 3 missing slots
@@ -1084,7 +1143,7 @@ class TestExplanationSamples:
         root = config.paths.output_root
         root.mkdir(parents=True)
         qwen_dir = root / "001_qwen_vl"
-        _write_status(qwen_dir, "qwen_vl", "completed", ended_at=_TS_LATE)
+        _write_status(qwen_dir, "qwen_vl", "completed", ended_at=_TS_LATE, config=config)
         _write_metrics(qwen_dir)
         self._write_predictions(
             qwen_dir,
@@ -1096,7 +1155,7 @@ class TestExplanationSamples:
             ],
         )
         assisted_dir = root / "002_assisted_qwen"
-        _write_status(assisted_dir, "assisted_qwen", "completed", ended_at=_TS_LATE)
+        _write_status(assisted_dir, "assisted_qwen", "completed", ended_at=_TS_LATE, config=config)
         _write_metrics(assisted_dir)
         self._write_predictions(
             assisted_dir,
@@ -1120,7 +1179,7 @@ class TestExplanationSamples:
         root = config.paths.output_root
         root.mkdir(parents=True)
         qwen_dir = root / "001_qwen_vl"
-        _write_status(qwen_dir, "qwen_vl", "completed", ended_at=_TS_LATE)
+        _write_status(qwen_dir, "qwen_vl", "completed", ended_at=_TS_LATE, config=config)
         _write_metrics(qwen_dir)
         self._write_predictions(qwen_dir, [self._make_prediction("s-001", "qwen_vl")])
 
@@ -1281,8 +1340,8 @@ class TestDeterminism:
         config = _make_config(tmp_path)
         root = config.paths.output_root
         root.mkdir(parents=True)
-        _complete_run(root, "001_clip_probe_seed70", "clip_probe", ended_at=_TS_LATE)
-        _failed_run(root, "002_qwen_vl", "qwen_vl", ended_at=_TS_LATE)
+        _complete_run(root, "001_clip_probe_seed70", "clip_probe", ended_at=_TS_LATE, config=config)
+        _failed_run(root, "002_qwen_vl", "qwen_vl", ended_at=_TS_LATE, config=config)
 
         runs = md.discover_run_summaries(config)
         text1 = md.build_phase_ab_report(config, runs)
@@ -1387,9 +1446,17 @@ class TestReportCli:
 
         # Create one selected completed run, then corrupt its metrics artifact.
         # Smoke config enables clip_probe with seed 70, so the run id must
-        # carry the matching seed suffix to land in the expected slot.
+        # carry the matching seed suffix to land in the expected slot, and the
+        # run must carry the CLI config's scope to be selected at all.
+        from aiforensics.config.load import load_config
+
+        cli_config = load_config(tmp_path / "report_cfg.yaml")
         completed = _complete_run(
-            output_root, "001_clip_probe_seed70", "clip_probe", ended_at=_TS_LATE
+            output_root,
+            "001_clip_probe_seed70",
+            "clip_probe",
+            ended_at=_TS_LATE,
+            config=cli_config,
         )
         (completed / "metrics.json").write_text("{broken", encoding="utf-8")
 
@@ -1420,6 +1487,27 @@ class TestReportCli:
         exit_code = main(["report", "--config", str(cfg2)])
         assert exit_code == 1
         assert "Error generating report" in capsys.readouterr().out
+
+    def test_cli_exit_one_on_invalid_evaluation_manifest(self, tmp_path, capsys):
+        """A corrupt manifest blocks scope computation as a reporting error."""
+        import yaml
+
+        cfg = self._write_cli_config(tmp_path)
+        bad_manifest = tmp_path / "bad_dev.csv"
+        bad_manifest.write_text("not,a,manifest\n1,2\n", encoding="utf-8")
+
+        data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+        data["datasets"]["tiny_genimage"]["dev_manifest"] = str(bad_manifest)
+        cfg2 = tmp_path / "bad_manifest_cfg.yaml"
+        cfg2.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+        from aiforensics.cli.main import main
+
+        exit_code = main(["report", "--config", str(cfg2)])
+        out = capsys.readouterr().out
+        assert exit_code == 1
+        assert "Error generating report" in out
+        assert "run scope" in out
 
 
 # ---------------------------------------------------------------------------

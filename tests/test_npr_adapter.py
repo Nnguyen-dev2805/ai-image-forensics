@@ -772,7 +772,36 @@ def test_missing_tiny_dev_and_no_external_fails(tmp_path):
     config = _make_config(tmp_path)
     config.datasets.tiny_genimage.dev_manifest = tmp_path / "nope.csv"
 
-    with pytest.raises(NPRConfigError, match="no enabled external"):
+    with pytest.raises(NPRConfigError, match="No enabled evaluation manifest exists"):
+        NPRAdapter()._select_eval_records(config)
+
+
+def test_disabled_tiny_genimage_is_not_loaded(tmp_path):
+    """datasets.tiny_genimage.enabled=false excludes tiny even when it exists."""
+    config = _make_config(tmp_path)
+    tiny_record = _make_record(tmp_path, "tiny-001", "real")
+    config.datasets.tiny_genimage.dev_manifest = _write_dev_manifest(tmp_path, [tiny_record])
+    external = tmp_path / "external.csv"
+    write_manifest([_make_record(tmp_path, "ext-001", "fake")], external)
+    config.datasets.genimage_unseen.enabled = True
+    config.datasets.genimage_unseen.manifest = external
+    config.datasets.tiny_genimage.enabled = False
+
+    selected = NPRAdapter()._select_eval_records(config)
+    assert [r.sample_id for r in selected] == ["ext-001"]
+
+
+def test_all_datasets_disabled_fails(tmp_path):
+    """A config that enables no dataset has nothing to evaluate."""
+    config = _make_config(tmp_path)
+    config.datasets.tiny_genimage.dev_manifest = _write_dev_manifest(
+        tmp_path, [_make_record(tmp_path, "tiny-001", "real")]
+    )
+    config.datasets.tiny_genimage.enabled = False
+    config.datasets.genimage_unseen.enabled = False
+    config.datasets.synthbuster.enabled = False
+
+    with pytest.raises(NPRConfigError, match="no dataset is enabled in config"):
         NPRAdapter()._select_eval_records(config)
 
 

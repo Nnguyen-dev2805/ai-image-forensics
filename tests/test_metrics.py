@@ -305,6 +305,18 @@ report:
     return cfg_path, out_root
 
 
+def _stamp_scope(run_dir: Path, cfg_path: Path) -> None:
+    """Stamp a run directory with the scope the CLI writes for ``cfg_path``.
+
+    ``aiforensics evaluate`` only evaluates runs belonging to the current
+    config, so a synthetic run directory must declare its scope to be picked up.
+    """
+    from aiforensics.config.load import load_config
+    from aiforensics.runs.scope import SCOPE_FILENAME, compute_run_scope, write_run_scope
+
+    write_run_scope(run_dir / SCOPE_FILENAME, compute_run_scope(load_config(cfg_path)))
+
+
 def test_cli_evaluate_no_prediction_files_returns_zero(tmp_path, capsys):
     cfg_path, _out_root = _write_tmp_config(tmp_path)
 
@@ -320,6 +332,7 @@ def test_cli_evaluate_writes_metrics_for_existing_predictions(tmp_path, capsys):
 
     run_dir = out_root / "run1"
     run_dir.mkdir(parents=True)
+    _stamp_scope(run_dir, cfg_path)
     p_file = run_dir / "predictions.jsonl"
     records = [
         prediction("r1", "real", "real", 0.1),
@@ -343,3 +356,124 @@ def test_cli_evaluate_writes_metrics_for_existing_predictions(tmp_path, capsys):
     data = json.loads(metrics_json.read_text(encoding="utf-8"))
     assert data["total_records"] == 2
     assert data["overall"]["accuracy"] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Evaluation is bound to the current config, not to output_root history
+# ---------------------------------------------------------------------------
+
+
+def test_cli_evaluate_skips_runs_without_scope(tmp_path, capsys):
+    """Runs that cannot prove they belong to this config are reported, not scored."""
+    cfg_path, out_root = _write_tmp_config(tmp_path)
+
+    run_dir = out_root / "legacy_run"
+    run_dir.mkdir(parents=True)
+    from aiforensics.schemas.predictions import write_predictions
+
+    write_predictions([prediction("r1", "real", "real", 0.1)], run_dir / "predictions.jsonl")
+
+    exit_code = main(["evaluate", "--config", str(cfg_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "prediction_files=0" in captured.out
+    assert "skipped_out_of_scope=1" in captured.out
+    assert "skipped out-of-scope run: legacy_run" in captured.out
+    assert not (run_dir / "metrics.json").exists()
+
+
+def test_cli_evaluate_skips_runs_from_other_dataset_slice(tmp_path, capsys):
+    """A run over a different evaluation slice is out of scope for this config."""
+    cfg_path, out_root = _write_tmp_config(tmp_path)
+
+    import yaml
+
+    from aiforensics.config.load import load_config
+    from aiforensics.runs.scope import SCOPE_FILENAME, compute_run_scope, write_run_scope
+
+    other_data = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    other_data["datasets"]["genimage_unseen"]["enabled"] = True
+    other_cfg = tmp_path / "other.yaml"
+    other_cfg.write_text(yaml.safe_dump(other_data), encoding="utf-8")
+
+    run_dir = out_root / "foreign_run"
+    run_dir.mkdir(parents=True)
+    write_run_scope(run_dir / SCOPE_FILENAME, compute_run_scope(load_config(other_cfg)))
+    from aiforensics.schemas.predictions import write_predictions
+
+    write_predictions([prediction("r1", "real", "real", 0.1)], run_dir / "predictions.jsonl")
+
+    exit_code = main(["evaluate", "--config", str(cfg_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "prediction_files=0" in captured.out
+    assert "skipped_out_of_scope=1" in captured.out
+
+
+def test_cli_evaluate_fails_cleanly_on_invalid_manifest(tmp_path, capsys):
+    """A corrupt evaluation manifest is an exit-1 error, not an uncaught crash."""
+    cfg_path, _out_root = _write_tmp_config(tmp_path)
+
+    import yaml
+
+    bad_manifest = tmp_path / "bad_dev.csv"
+    bad_manifest.write_text("not,a,manifest\n1,2\n", encoding="utf-8")
+
+    data = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    data["datasets"]["tiny_genimage"]["enabled"] = True
+    data["datasets"]["tiny_genimage"]["dev_manifest"] = str(bad_manifest)
+    bad_cfg = tmp_path / "bad.yaml"
+    bad_cfg.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    exit_code = main(["evaluate", "--config", str(bad_cfg)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "invalid evaluation manifest" in captured.out
+
+
+def test_cli_evaluate_fails_on_predictions_outside_manifest(tmp_path, capsys):
+    """In-scope predictions still get cross-checked against the manifest ids."""
+    cfg_path, out_root = _write_tmp_config(tmp_path)
+
+    # Give the config a real evaluation manifest so cross-checking has ids.
+    import hashlib
+
+    import yaml
+
+    from aiforensics.config.load import load_config
+    from aiforensics.runs.scope import SCOPE_FILENAME, compute_run_scope, write_run_scope
+
+    data_root = tmp_path / "data"
+    data_root.mkdir(parents=True, exist_ok=True)
+    image = data_root / "r1.png"
+    image.write_bytes(b"r1-bytes")
+    checksum = hashlib.sha256(b"r1-bytes").hexdigest()
+    dev_manifest = tmp_path / "m_dev.csv"
+    dev_manifest.write_text(
+        f"sample_id,path,label,source,split,checksum\nr1,r1.png,real,smoke,dev,{checksum}\n",
+        encoding="utf-8",
+    )
+
+    data = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    data["datasets"]["tiny_genimage"]["enabled"] = True
+    scoped_cfg = tmp_path / "scoped.yaml"
+    scoped_cfg.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    run_dir = out_root / "ghost_run"
+    run_dir.mkdir(parents=True)
+    write_run_scope(run_dir / SCOPE_FILENAME, compute_run_scope(load_config(scoped_cfg)))
+    from aiforensics.schemas.predictions import write_predictions
+
+    write_predictions(
+        [prediction("ghost_sample", "real", "real", 0.1)], run_dir / "predictions.jsonl"
+    )
+
+    exit_code = main(["evaluate", "--config", str(scoped_cfg)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "not found in manifest_sample_ids" in captured.out
+    assert not (run_dir / "metrics.json").exists()

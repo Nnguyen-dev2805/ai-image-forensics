@@ -162,20 +162,35 @@ prepare
 run --baseline <name>
   -> read config and manifest
   -> create outputs/<run_id>/
-  -> write config.yaml and environment.json
+  -> write config.yaml, run_scope.json, and environment.json
   -> execute baseline adapter
   -> write predictions.jsonl or failure/deferred metadata
 
 evaluate
   -> read manifests and prediction files
-  -> validate prediction schema
+  -> skip runs whose run_scope.json does not match the current config
+  -> validate prediction schema against the current manifest sample ids
   -> compute metrics
   -> write metrics.json and metrics_by_source.csv
 
 report
-  -> read run metadata and metrics
+  -> read run metadata and metrics for the current run scope only
   -> write Markdown report comparing baselines
 ```
+
+## Run Scope
+
+A single `output_root` accumulates runs from different configs and dataset
+slices. Each run directory therefore records a `run_scope.json` fingerprint of
+the evaluation setup that produced it: project phase, `data_root`, which dataset
+slices are enabled, the manifests they resolve to, and a digest of the exact
+evaluation sample ids.
+
+`evaluate`, `report`, and `assisted_qwen` all filter by that fingerprint, so
+artifacts from an unrelated experiment cannot enter the current one. Because the
+fingerprint covers the evaluation slice rather than model or seed choices,
+re-running the same experiment reproduces the same scope, while changing a
+dataset flag, manifest, or phase makes older runs foreign.
 
 ## Artifact Contract
 
@@ -184,6 +199,7 @@ Every run writes:
 ```text
 outputs/<run_id>/
   config.yaml
+  run_scope.json
   environment.json
   predictions.jsonl
   metrics.json
@@ -196,6 +212,7 @@ If a run fails before predictions are available, it still writes:
 ```text
 outputs/<run_id>/
   config.yaml
+  run_scope.json
   environment.json
   status.json
   logs.txt

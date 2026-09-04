@@ -158,11 +158,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
         write_environment,
         write_status,
     )
+    from aiforensics.runs.scope import SCOPE_FILENAME, compute_run_scope, write_run_scope
+
+    # Computed once per invocation: the scope stamped into each run directory is
+    # the identity later commands use to tell this experiment's artifacts apart
+    # from unrelated history under the same output_root.
+    run_scope = compute_run_scope(config)
 
     def _setup_run_dir(baseline: str, run_name: str | None = None) -> pathlib.Path:
         run_dir = create_run_dir(config.paths.output_root, baseline, run_name=run_name)
         (run_dir / "logs.txt").touch()
         shutil.copy2(args.config, run_dir / "config.yaml")
+        write_run_scope(run_dir / SCOPE_FILENAME, run_scope)
         write_environment(run_dir / "environment.json")
         return run_dir
 
@@ -368,18 +375,36 @@ def _cmd_run(args: argparse.Namespace) -> int:
 def _cmd_evaluate(args: argparse.Namespace) -> int:
     config = load_config(args.config)
 
+    from aiforensics.data.manifest import ManifestError
+    from aiforensics.data.selection import selected_evaluation_manifests
     from aiforensics.evaluation.metrics import (
         MetricsError,
-        discover_prediction_files,
+        discover_scoped_prediction_files,
         evaluate_prediction_file,
     )
+    from aiforensics.runs.scope import compute_run_scope
 
-    files = discover_prediction_files(config.paths.output_root)
+    # Selecting once serves both purposes: the manifest ids that predictions are
+    # cross-checked against, and the scope digest that decides which runs belong
+    # to this config.
+    try:
+        selection = selected_evaluation_manifests(config, strict=False)
+    except ManifestError as exc:
+        print(f"Error evaluating: invalid evaluation manifest: {exc}")
+        return 1
+
+    expected_scope = compute_run_scope(config, selection=selection)
+    manifest_sample_ids = selection.sample_ids or None
+
+    files, skipped = discover_scoped_prediction_files(config.paths.output_root, expected_scope)
     count = len(files)
+
+    for p_file in skipped:
+        print(f"[evaluate] skipped out-of-scope run: {p_file.parent.name}")
 
     for p_file in files:
         try:
-            evaluate_prediction_file(p_file)
+            evaluate_prediction_file(p_file, manifest_sample_ids=manifest_sample_ids)
         except MetricsError as e:
             print(f"Error evaluating {p_file}: {e}")
             return 1
@@ -387,6 +412,7 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     print(
         f"[evaluate] project={config.project.name} "
         f"phase={config.project.phase} prediction_files={count} "
+        f"skipped_out_of_scope={len(skipped)} scope={expected_scope.scope_id[:12]} "
         f"output_root={config.paths.output_root}"
     )
     return 0

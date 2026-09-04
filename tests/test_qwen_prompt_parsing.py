@@ -1000,3 +1000,28 @@ def test_all_manifests_missing_fails(tmp_path):
     adapter = QwenVLAdapter()
     with pytest.raises(ManifestError, match="No valid evaluation manifests found"):
         adapter._load_manifests(config)
+
+
+def test_disabled_tiny_genimage_is_ignored(tmp_path):
+    """datasets.tiny_genimage.enabled=false must exclude tiny from evaluation."""
+    from aiforensics.baselines.qwen_vl.adapter import QwenVLAdapter
+    from aiforensics.config.load import load_config
+
+    config = load_config("configs/phase_ab_smoke.yaml")
+    config.paths.data_root = tmp_path
+    config.datasets.tiny_genimage.dev_manifest = tmp_path / "dev.csv"
+    config.datasets.genimage_unseen.enabled = True
+    config.datasets.genimage_unseen.manifest = tmp_path / "unseen.csv"
+    config.datasets.synthbuster.enabled = False
+
+    checksum = "59e40235e6bfac39e4af3ac2fdcca12fc4e21fed53b56935938f7541459c68a3"
+    (tmp_path / "dev.csv").write_text(
+        f"sample_id,path,label,split,source,dataset,checksum\ntiny-1,1.jpg,fake,dev,s,d,{checksum}\n"
+    )
+    (tmp_path / "unseen.csv").write_text(
+        f"sample_id,path,label,split,source,dataset,checksum\next-1,2.jpg,fake,dev,s,u,{checksum}\n"
+    )
+
+    config.datasets.tiny_genimage.enabled = False
+    records = QwenVLAdapter()._load_manifests(config)
+    assert [r.sample_id for r in records] == ["ext-1"]

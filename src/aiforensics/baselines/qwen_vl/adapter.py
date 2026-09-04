@@ -6,7 +6,8 @@ from aiforensics.baselines.qwen_vl.parsing import parse_qwen_output
 from aiforensics.baselines.qwen_vl.prompt import get_prompt
 from aiforensics.cache.keys import cache_key
 from aiforensics.config.models import AppConfig
-from aiforensics.data.manifest import ManifestRecord, load_manifest
+from aiforensics.data.manifest import ManifestRecord
+from aiforensics.data.selection import selected_evaluation_manifests
 from aiforensics.schemas.predictions import (
     PredictionRecord,
     validate_predictions,
@@ -164,44 +165,10 @@ class QwenVLAdapter(BaselineAdapter):
             )
 
     def _load_manifests(self, config: AppConfig) -> list[ManifestRecord]:
-        records = []
-        datasets_cfg = config.datasets
-
-        if datasets_cfg.tiny_genimage.dev_manifest.exists():
-            records.extend(
-                load_manifest(
-                    datasets_cfg.tiny_genimage.dev_manifest, data_root=config.paths.data_root
-                )
-            )
-        else:
-            logger.warning(f"Manifest missing: {datasets_cfg.tiny_genimage.dev_manifest}")
-
-        if getattr(datasets_cfg.genimage_unseen, "enabled", True):
-            if datasets_cfg.genimage_unseen.manifest.exists():
-                records.extend(
-                    load_manifest(
-                        datasets_cfg.genimage_unseen.manifest, data_root=config.paths.data_root
-                    )
-                )
-            else:
-                logger.warning(f"Manifest missing: {datasets_cfg.genimage_unseen.manifest}")
-
-        if getattr(datasets_cfg.synthbuster, "enabled", True):
-            if datasets_cfg.synthbuster.manifest.exists():
-                records.extend(
-                    load_manifest(
-                        datasets_cfg.synthbuster.manifest, data_root=config.paths.data_root
-                    )
-                )
-            else:
-                logger.warning(f"Manifest missing: {datasets_cfg.synthbuster.manifest}")
-
-        if not records:
-            from aiforensics.data.manifest import ManifestError
-
-            raise ManifestError("No valid evaluation manifests found.")
-
-        return records
+        selection = selected_evaluation_manifests(config)
+        for message in selection.warnings:
+            logger.warning("%s", message)
+        return list(selection.records)
 
     def _get_qwen_device(self, config: AppConfig) -> str:
         from aiforensics.baselines.qwen_vl.runtime import get_qwen_device

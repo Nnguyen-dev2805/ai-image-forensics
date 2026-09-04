@@ -17,7 +17,10 @@ from aiforensics.baselines.qwen_vl.runtime import (
 )
 from aiforensics.cache.keys import cache_key
 from aiforensics.config.models import AppConfig
-from aiforensics.data.manifest import ManifestRecord, load_manifest
+from aiforensics.data.manifest import ManifestRecord
+from aiforensics.data.selection import selected_evaluation_manifests
+from aiforensics.runs.artifacts import clip_seed_from_run_id
+from aiforensics.runs.scope import RunScope, compute_run_scope, scope_matches
 from aiforensics.schemas.predictions import (
     PredictionRecord,
     load_predictions,
@@ -214,68 +217,22 @@ class AssistedQwenAdapter(BaselineAdapter):
             )
 
     def _load_manifests(self, config: AppConfig) -> list[ManifestRecord]:
-        records = []
-        datasets_cfg = config.datasets
-
-        if datasets_cfg.tiny_genimage.dev_manifest.exists():
-            records.extend(
-                load_manifest(
-                    datasets_cfg.tiny_genimage.dev_manifest, data_root=config.paths.data_root
-                )
-            )
-        else:
-            logger.warning(f"Manifest missing: {datasets_cfg.tiny_genimage.dev_manifest}")
-
-        if getattr(datasets_cfg.genimage_unseen, "enabled", True):
-            if datasets_cfg.genimage_unseen.manifest.exists():
-                records.extend(
-                    load_manifest(
-                        datasets_cfg.genimage_unseen.manifest, data_root=config.paths.data_root
-                    )
-                )
-            else:
-                logger.warning(f"Manifest missing: {datasets_cfg.genimage_unseen.manifest}")
-
-        if getattr(datasets_cfg.synthbuster, "enabled", True):
-            if datasets_cfg.synthbuster.manifest.exists():
-                records.extend(
-                    load_manifest(
-                        datasets_cfg.synthbuster.manifest, data_root=config.paths.data_root
-                    )
-                )
-            else:
-                logger.warning(f"Manifest missing: {datasets_cfg.synthbuster.manifest}")
-
-        if not records:
-            from aiforensics.data.manifest import ManifestError
-
-            raise ManifestError("No valid evaluation manifests found.")
-
-        return records
+        selection = selected_evaluation_manifests(config)
+        for message in selection.warnings:
+            logger.warning("%s", message)
+        return list(selection.records)
 
     def _discover_assistant_inputs(self, config: AppConfig) -> dict[str, AssistedInput]:
-        output_root = config.paths.output_root
-        if not output_root.exists():
-            raise Exception("No completed clip_probe predictions found for assisted_qwen")
-
-        clip_files = []
-        for path in output_root.rglob("predictions.jsonl"):
-            status_file = path.parent / "status.json"
-            if status_file.exists():
-                try:
-                    status_data = json.loads(status_file.read_text(encoding="utf-8"))
-                    if (
-                        status_data.get("baseline") == "clip_probe"
-                        and status_data.get("status") == "completed"
-                    ):
-                        clip_files.append(path)
-                except Exception:
-                    pass
+        expected_scope = compute_run_scope(config)
+        clip_files = self._select_clip_prediction_files(config, expected_scope)
 
         if not clip_files:
-            raise Exception("No completed clip_probe predictions found for assisted_qwen")
+            raise Exception(
+                "No completed clip_probe predictions found for assisted_qwen "
+                f"in the current run scope {expected_scope.scope_id[:12]}; "
+                "run 'aiforensics run --baseline clip_probe' with this config first"
+            )
 
-        clip_files.sort()
         self._counts["clip_files_used"] = len(clip_files)
         self._clip_files = clip_files
 
@@ -318,6 +275,69 @@ class AssistedQwenAdapter(BaselineAdapter):
 
         self._counts["assistant_inputs_built"] = len(inputs)
         return inputs
+
+    def _select_clip_prediction_files(
+        self, config: AppConfig, expected_scope: RunScope
+    ) -> list[Path]:
+        """Select the CLIP prediction files that belong to this experiment.
+
+        Three filters keep assistant input reproducible for a given config:
+        the run must be a completed ``clip_probe`` run, it must carry the
+        current run scope, and its seed must be one the config declares. Within
+        one seed, only the newest run contributes, so re-running a seed replaces
+        its earlier prediction instead of being averaged in twice. Run
+        directories are named with a leading UTC timestamp by ``create_run_dir``,
+        so the lexicographically greatest name is the newest run.
+        """
+        output_root = config.paths.output_root
+        if not output_root.exists():
+            return []
+
+        clip_cfg = config.baselines.clip_probe
+        allowed_seeds = set(clip_cfg.seeds) if clip_cfg.enabled else set()
+
+        # One entry per seed slot; seed-less runs key on their own directory
+        # name so they are never collapsed into each other.
+        latest_by_slot: dict[str, tuple[str, Path]] = {}
+        for path in sorted(output_root.rglob("predictions.jsonl")):
+            run_dir = path.parent
+            if not self._is_completed_clip_run(run_dir):
+                continue
+            if not scope_matches(run_dir, expected_scope):
+                logger.info(
+                    "Ignoring clip_probe run outside the current run scope: %s", run_dir.name
+                )
+                continue
+
+            seed = clip_seed_from_run_id(run_dir.name)
+            if seed is not None and allowed_seeds and seed not in allowed_seeds:
+                logger.info(
+                    "Ignoring clip_probe run for unconfigured seed %d: %s", seed, run_dir.name
+                )
+                continue
+
+            slot_key = f"seed{seed}" if seed is not None else f"run:{run_dir.name}"
+            existing = latest_by_slot.get(slot_key)
+            if existing is None or run_dir.name > existing[0]:
+                latest_by_slot[slot_key] = (run_dir.name, path)
+
+        return sorted(path for _name, path in latest_by_slot.values())
+
+    @staticmethod
+    def _is_completed_clip_run(run_dir: Path) -> bool:
+        """Report whether ``run_dir`` holds a completed ``clip_probe`` status."""
+        status_file = run_dir / "status.json"
+        if not status_file.exists():
+            return False
+        try:
+            status_data = json.loads(status_file.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        if not isinstance(status_data, dict):
+            return False
+        return (
+            status_data.get("baseline") == "clip_probe" and status_data.get("status") == "completed"
+        )
 
     def _run_inference(
         self,

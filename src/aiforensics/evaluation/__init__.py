@@ -4,6 +4,7 @@ from aiforensics.evaluation.metrics import (
     compute_classification_metrics,
     compute_metrics_by_source,
     discover_prediction_files,
+    discover_scoped_prediction_files,
     evaluate_prediction_file,
     write_metrics_outputs,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "compute_classification_metrics",
     "compute_metrics_by_source",
     "discover_prediction_files",
+    "discover_scoped_prediction_files",
     "evaluate_prediction_file",
     "write_metrics_outputs",
 ]
