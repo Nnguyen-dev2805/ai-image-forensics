@@ -87,6 +87,9 @@ class QwenVLConfig(BaseModel):
     max_new_tokens: int = Field(gt=0)
     cache_outputs: bool
     allow_deferred: bool = True
+    # Compute dtype changes numerical results, so it is configured and recorded
+    # (cache keys, reports) instead of hidden in the runtime.
+    dtype: Literal["bfloat16", "float16", "float32"] = "bfloat16"
 
 
 class AssistedQwenConfig(BaseModel):
@@ -100,6 +103,7 @@ class AssistedQwenConfig(BaseModel):
     max_new_tokens: int = Field(gt=0)
     cache_outputs: bool
     allow_deferred: bool = True
+    dtype: Literal["bfloat16", "float16", "float32"] = "bfloat16"
 
 
 class NPRConfig(BaseModel):

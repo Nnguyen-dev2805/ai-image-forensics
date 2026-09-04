@@ -4,6 +4,7 @@ from pathlib import Path
 from aiforensics.baselines.base import BaselineAdapter, RunResult
 from aiforensics.baselines.qwen_vl.parsing import parse_qwen_output
 from aiforensics.baselines.qwen_vl.prompt import get_prompt
+from aiforensics.baselines.qwen_vl.runtime import QwenOutOfMemoryError
 from aiforensics.cache.keys import cache_key
 from aiforensics.config.models import AppConfig
 from aiforensics.data.manifest import ManifestRecord
@@ -101,6 +102,7 @@ class QwenVLAdapter(BaselineAdapter):
                 f.write(f"Processed {len(records)} records.\n")
                 f.write(f"Model ID: {config.baselines.qwen_vl.model_id}\n")
                 f.write(f"Prompt ID: {config.baselines.qwen_vl.prompt_id}\n")
+                f.write(f"Compute dtype: {config.baselines.qwen_vl.dtype}\n")
                 f.write(f"Resolved device: {device}\n")
                 f.write(f"Cache Hits: {self._counts['cache_hits']}\n")
                 f.write(f"Cache Misses: {self._counts['cache_misses']}\n")
@@ -121,6 +123,49 @@ class QwenVLAdapter(BaselineAdapter):
                 reason=None,
             )
 
+        except QwenOutOfMemoryError as e:
+            # Exhausted VRAM is an environment limit, so it follows the same
+            # deferral policy as a missing GPU rather than reporting a failure.
+            reason = f"GPU out of memory: {e}"
+            if config.baselines.qwen_vl.allow_deferred:
+                logger.info("Run deferred: %s", reason)
+                try:
+                    if (run_dir / "predictions.jsonl").exists():
+                        (run_dir / "predictions.jsonl").unlink()
+                except Exception:
+                    pass
+                with open(run_dir / "logs.txt", "a", encoding="utf-8") as f:
+                    f.write(f"Run deferred: {reason}\n")
+                return RunResult(
+                    baseline=self.name,
+                    run_id=run_id,
+                    status="deferred",
+                    output_dir=run_dir,
+                    prediction_path=None,
+                    log_path=run_dir / "logs.txt",
+                    environment_path=run_dir / "environment.json",
+                    status_path=run_dir / "status.json",
+                    reason=reason,
+                )
+            logger.error("Run failed: %s", reason)
+            try:
+                if (run_dir / "predictions.jsonl").exists():
+                    (run_dir / "predictions.jsonl").unlink()
+            except Exception:
+                pass
+            with open(run_dir / "logs.txt", "a", encoding="utf-8") as f:
+                f.write(f"Run failed: {reason}\n")
+            return RunResult(
+                baseline=self.name,
+                run_id=run_id,
+                status="failed",
+                output_dir=run_dir,
+                prediction_path=None,
+                log_path=run_dir / "logs.txt",
+                environment_path=run_dir / "environment.json",
+                status_path=run_dir / "status.json",
+                reason=reason,
+            )
         except BaselineDeferredError as e:
             logger.info(f"Run deferred: {e}")
             try:
@@ -185,6 +230,7 @@ class QwenVLAdapter(BaselineAdapter):
             device,
             config.baselines.qwen_vl.allow_deferred,
             BaselineDeferredError,
+            dtype=config.baselines.qwen_vl.dtype,
         )
 
     def _generate_one_image(
@@ -220,9 +266,10 @@ class QwenVLAdapter(BaselineAdapter):
                     "sample_checksum": checksum,
                     "model_id": qwen_cfg.model_id,
                     "prompt_id": qwen_cfg.prompt_id,
+                    "dtype": qwen_cfg.dtype,
                     "temperature": str(qwen_cfg.temperature),
                     "max_new_tokens": str(qwen_cfg.max_new_tokens),
-                    "output_cache_version": "qwen_vl_raw_v2",  # Bump version since format changed
+                    "output_cache_version": "qwen_vl_raw_v3",
                 }
             )
 

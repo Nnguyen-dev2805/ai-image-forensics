@@ -653,6 +653,33 @@ def _render_baseline_status(
         )
     lines.append("")
 
+    # Numerical precision changes MLLM outputs, so the report states which dtype
+    # produced the numbers above instead of leaving it in the run logs.
+    qwen = config.baselines.qwen_vl
+    assisted = config.baselines.assisted_qwen
+    lines.extend(
+        [
+            "MLLM compute precision (affects numerical results):",
+            "",
+            "| Baseline | Model | Compute dtype |",
+            "| --- | --- | --- |",
+            f"| qwen_vl | {_escape_cell(qwen.model_id)} | {_escape_cell(qwen.dtype)} |",
+            f"| assisted_qwen | {_escape_cell(assisted.base_model_id)} "
+            f"| {_escape_cell(assisted.dtype)} |",
+            "",
+        ]
+    )
+    if qwen.dtype != assisted.dtype:
+        lines.extend(
+            [
+                "**Warning:** `qwen_vl` and `assisted_qwen` ran at different "
+                "compute precisions, so the assisted-versus-unassisted "
+                "comparison below confounds prompt effects with numerical "
+                "precision.",
+                "",
+            ]
+        )
+
 
 def _render_overall_metrics(
     resolved: list[RunSummary],

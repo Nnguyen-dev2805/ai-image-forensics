@@ -76,6 +76,11 @@ baselines:
     enabled: true
     model_id: Qwen/Qwen2.5-VL-3B-Instruct
     prompt_id: qwen_json_v1
+    # Compute dtype for the MLLM. bfloat16 has no tensor-core support before
+    # Ampere, so float16 is materially faster on Turing (T4) at the same memory
+    # cost. It changes numerical results, so it is recorded in cache keys and
+    # the report rather than being an implicit default.
+    dtype: float16
     temperature: 0.0
     max_new_tokens: 256
     cache_outputs: true
@@ -86,6 +91,9 @@ baselines:
     assistant_source: clip_probe
     include_classifier_pred: true
     include_fake_probability: true
+    # Keep in step with qwen_vl.dtype: the two MLLM baselines are only
+    # comparable when they run at the same numerical precision.
+    dtype: float16
     temperature: 0.0
     max_new_tokens: 256
     cache_outputs: true
