@@ -386,7 +386,7 @@ If model dependencies, GPU, or weights are unavailable, write `status.json` with
 
 - [ ] **Step 4: Wire `aiforensics run --baseline qwen_vl`**
 
-Real inference uses `Qwen/Qwen2.5-VL-3B-Instruct` from config.
+Real inference uses `Qwen/Qwen2.5-VL-7B-Instruct` from config.
 
 - [ ] **Step 5: Verify parser tests**
 
@@ -558,4 +558,3 @@ Expected: tests pass and smoke artifacts are generated.
 - [ ] **Step 3: Record unsupported environment behavior**
 
 If Qwen or NPR cannot run locally, confirm their adapters produce `deferred` status artifacts with logs.
-

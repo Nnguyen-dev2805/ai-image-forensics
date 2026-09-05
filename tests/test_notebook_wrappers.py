@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK_DIR = REPO_ROOT / "notebooks"
 COLAB_NOTEBOOK = NOTEBOOK_DIR / "colab_phase_ab.ipynb"
 KAGGLE_NOTEBOOK = NOTEBOOK_DIR / "kaggle_phase_ab.ipynb"
+KAGGLE_VERTEX_QWEN_NOTEBOOK = NOTEBOOK_DIR / "kaggle_vertex_qwen_phase_ab.ipynb"
 RUNBOOK = REPO_ROOT / "docs" / "runbook-colab-kaggle.md"
 
 NOTEBOOK_PATHS = {"colab": COLAB_NOTEBOOK, "kaggle": KAGGLE_NOTEBOOK}
@@ -148,6 +149,11 @@ def _section_source(notebook: dict, marker: str) -> str:
 @pytest.fixture(scope="module")
 def notebooks() -> dict[str, dict]:
     return {name: _load_notebook(path) for name, path in NOTEBOOK_PATHS.items()}
+
+
+@pytest.fixture(scope="module")
+def vertex_qwen_notebook() -> dict:
+    return _load_notebook(KAGGLE_VERTEX_QWEN_NOTEBOOK)
 
 
 @pytest.fixture(scope="module")
@@ -391,10 +397,66 @@ def test_kaggle_notebook_separates_readonly_input_from_writable_output(
 
 
 def test_kaggle_notebook_hardcodes_no_dataset_slug(notebooks: dict[str, dict]) -> None:
-    code = _code_source(notebooks["kaggle"])
+    """Any other /kaggle/input path must stay a <placeholder>.
+
+    Two defaults are deliberately prefilled as this project's own values (the
+    repository URL and the image dataset); they are documented user-editable
+    inputs, not hidden assumptions.
+    """
+    notebook = notebooks["kaggle"]
+    code = _code_source(notebook)
+    assert 'REPO_GIT_URL = "https://github.com/Nnguyen-dev2805/ai-image-forensics.git"' in code
+    assert 'INPUT_DATA_DIR = KAGGLE_INPUT_ROOT / "datasets/yangsangtai/tiny-genimage"' in code
+
+    allowed = ('INPUT_DATA_DIR = KAGGLE_INPUT_ROOT / "datasets/yangsangtai/tiny-genimage"',)
     for line in code.splitlines():
-        if "/kaggle/input/" in line:
+        if "/kaggle/input/" in line and not any(a in line for a in allowed):
             assert "<" in line and ">" in line, f"hardcoded dataset path: {line!r}"
+
+
+def test_vertex_qwen_notebook_uses_kaggle_secret_flow(vertex_qwen_notebook: dict) -> None:
+    code = _code_source(vertex_qwen_notebook)
+    assert "from kaggle_secrets import UserSecretsClient" in code
+    assert 'get_secret("GOOGLE_APPLICATION_CREDENTIALS")' in code
+    assert "service_account.Credentials.from_service_account_info" in code
+    assert "credentials.refresh(Request())" in code
+    assert "credentials.token" in code
+    assert "private_key" not in code
+    assert "access_token" not in code
+
+
+def test_vertex_qwen_notebook_uses_dedicated_endpoint_domain(
+    vertex_qwen_notebook: dict,
+) -> None:
+    code = _code_source(vertex_qwen_notebook)
+    assert "mg-endpoint-ccc259a2-c268-4ca6-8713-3bcdaaaf5909." in code
+    assert "asia-southeast1-635507464424.prediction.vertexai.goog" in code
+    assert "https://aiplatform.googleapis.com" not in code
+    assert "/v1/projects/579187260419/locations/asia-southeast1/endpoints/" in code
+    assert "chat.completions.create" in code
+    assert 'model="qwen2_5-vl-7b-instruct-1788570383931"' in code
+
+
+def test_vertex_qwen_notebook_keeps_qwen_out_of_cli_until_runtime_exists(
+    vertex_qwen_notebook: dict,
+) -> None:
+    full_run = _section_source(vertex_qwen_notebook, FULL_RUN_MARKER)
+    assert "aiforensics run --baseline clip_probe" in full_run
+    assert "aiforensics run --baseline npr" in full_run
+    assert "aiforensics run --baseline qwen_vl" not in full_run
+    assert "aiforensics run --baseline assisted_qwen" not in full_run
+
+
+def test_vertex_qwen_notebook_does_not_print_tokens_or_secret_json(
+    vertex_qwen_notebook: dict,
+) -> None:
+    code = _code_source(vertex_qwen_notebook)
+    for forbidden in (
+        "print(service_account_json)",
+        "print(credentials.token)",
+        "print(client.api_key)",
+    ):
+        assert forbidden not in code
 
 
 # ---------------------------------------------------------------------------

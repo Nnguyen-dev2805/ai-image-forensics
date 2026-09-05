@@ -177,7 +177,7 @@ def _make_config(tmp_path: Path, **overrides) -> AppConfig:
             ),
             qwen_vl=QwenVLConfig(
                 enabled=False,
-                model_id="Qwen/Qwen2.5-VL-3B-Instruct",
+                model_id="Qwen/Qwen2.5-VL-7B-Instruct",
                 prompt_id="qwen_json_v1",
                 temperature=0.0,
                 max_new_tokens=128,
@@ -186,7 +186,7 @@ def _make_config(tmp_path: Path, **overrides) -> AppConfig:
             ),
             assisted_qwen=AssistedQwenConfig(
                 enabled=False,
-                base_model_id="Qwen/Qwen2.5-VL-3B-Instruct",
+                base_model_id="Qwen/Qwen2.5-VL-7B-Instruct",
                 prompt_id="assisted_qwen_json_v1",
                 assistant_source="clip_probe",
                 include_classifier_pred=True,

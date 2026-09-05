@@ -11,7 +11,7 @@ aiforensics run --baseline qwen_vl --config configs/phase_ab.yaml
 ```
 
 from a placeholder into a working multimodal baseline using the configured
-`Qwen/Qwen2.5-VL-3B-Instruct` model.
+`Qwen/Qwen2.5-VL-7B-Instruct` model.
 
 The baseline must:
 
@@ -359,7 +359,7 @@ config.baselines.qwen_vl.model_id
 The Phase A/B real config currently uses:
 
 ```text
-Qwen/Qwen2.5-VL-3B-Instruct
+Qwen/Qwen2.5-VL-7B-Instruct
 ```
 
 Use the Hugging Face Qwen2.5-VL implementation, with lazy imports inside the real inference path.
@@ -818,7 +818,7 @@ The existing smoke config intentionally has:
 ```yaml
 qwen_vl:
   enabled: false
-  model_id: Qwen/Qwen2.5-VL-3B-Instruct
+  model_id: Qwen/Qwen2.5-VL-7B-Instruct
   prompt_id: qwen_json_v1
   temperature: 0.0
   max_new_tokens: 128
