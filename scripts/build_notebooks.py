@@ -392,33 +392,43 @@ import importlib
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
+# 1. Locate the Python 3.10 CLI virtual environment provisioned in Section 2
+cli_python = shutil.which("python")
+cli_py_version = (
+    subprocess.run([cli_python, "-V"], capture_output=True, text=True).stdout
+    if cli_python
+    else ""
+)
+if not cli_python or "3.10" not in cli_py_version:
+    cli_python = str(Path("/kaggle/working/aiforensics-venv310/bin/python"))
 
-def vertex_dependencies_ready() -> bool:
-    try:
-        importlib.import_module("kaggle_secrets")
-        importlib.import_module("requests")
-        from google.auth.transport.requests import Request
-        from google.oauth2 import service_account
-        from openai import OpenAI
-    except ImportError:
-        return False
-    _ = (OpenAI, Request, service_account)
-    return shutil.which("aiforensics") is not None
+print("CLI Python 3.10 target:", cli_python)
 
+# 2. Install aiforensics with [vertex] extra into the Python 3.10 environment
+subprocess.run(
+    [cli_python, "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
+    check=True,
+)
+subprocess.run(
+    [cli_python, "-m", "pip", "install", "-e", ".[vertex]"],
+    cwd=str(REPO_ROOT),
+    check=True,
+)
 
-if vertex_dependencies_ready():
-    print("Vertex dependencies already import; skipping pip install")
-else:
+# 3. Ensure the notebook kernel (Python 3.12) has openai and google dependencies for Section 8
+try:
+    import openai
+    from google.auth.transport.requests import Request
+    from google.oauth2 import service_account
+except ImportError:
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
+        [sys.executable, "-m", "pip", "install", "--quiet", "openai", "google-auth", "requests"],
         check=True,
     )
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-e", ".[vertex]"],
-        cwd=str(REPO_ROOT),
-        check=True,
-    )
+
+print("aiforensics CLI and Vertex dependencies installed successfully!")
 """
 
 INSTALL_ENV_CODE = """

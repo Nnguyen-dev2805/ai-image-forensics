@@ -27,6 +27,14 @@ def _fail() -> QwenParseResult:
 
 
 def parse_qwen_output(raw_output: str) -> QwenParseResult:
+    if raw_output.startswith("ERROR: "):
+        return QwenParseResult(
+            label_pred="unknown",
+            score_fake=None,
+            explanation=raw_output,
+            parse_status="failed",
+        )
+
     def _validate(
         data: dict, base_status: Literal["parsed", "recovered"]
     ) -> QwenParseResult | None:
