@@ -33,6 +33,17 @@ def test_smoke_config_baseline_values():
     assert config.baselines.npr.allow_deferred is True
 
 
+def test_full_config_uses_quickgelu_clip_variant():
+    """OpenAI's openai checkpoints need the QuickGELU architecture.
+
+    The plain ViT-L-14 name silently builds mismatched activations; the config
+    must pin the variant explicitly so the warning cannot come back unnoticed.
+    """
+    config = load_config(FULL_CONFIG)
+    assert config.baselines.clip_probe.model_name == "ViT-L-14-quickgelu"
+    assert config.baselines.clip_probe.pretrained == "openai"
+
+
 def test_full_config_loads_optional_npr_fields():
     config = load_config(FULL_CONFIG)
     # Task 10 pins the verified official NPR commit in the real config.

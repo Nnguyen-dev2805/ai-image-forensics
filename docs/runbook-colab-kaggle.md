@@ -259,10 +259,13 @@ the adapters must be able to write there.
 
 Other Kaggle specifics:
 
-- No dataset slug, username, or competition path is hardcoded. Replace the
-  `<...>` placeholders with the datasets you attached. Give the **full**
-  directory path: Kaggle mounts datasets under more than one shape, so
-  `/kaggle/input/<slug>` and `/kaggle/input/datasets/<owner>/<slug>` both occur.
+- Two inputs come prefilled with this project's own values and need no editing:
+  `REPO_GIT_URL` (the repository clone URL) and `INPUT_DATA_DIR` (the GenImage
+  image dataset). Everything else — the NPR checkpoint dataset and, when
+  `BUILD_MANIFESTS = False`, the manifest dataset — stays a `<...>` placeholder
+  until you attach it. Give the **full** directory path for any new input:
+  Kaggle mounts datasets under more than one shape, so `/kaggle/input/<slug>`
+  and `/kaggle/input/datasets/<owner>/<slug>` both occur.
 - Section 7 lists the generator directories it can see under `DATA_ROOT` and
   flags any generator the config asks for but cannot find. A wrong `DATA_ROOT` is
   the most common first-run failure, and this surfaces it before `prepare` runs.

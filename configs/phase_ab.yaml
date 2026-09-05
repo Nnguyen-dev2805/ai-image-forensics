@@ -64,7 +64,10 @@ baselines:
   clip_probe:
     enabled: true
     model_family: openclip
-    model_name: ViT-L-14
+    # Must be the "-quickgelu" variant: OpenAI's openai-pretrained checkpoints
+    # were trained with QuickGELU activations, so loading them into the plain
+    # ViT-L-14 architecture silently runs mismatched activations and underperforms.
+    model_name: ViT-L-14-quickgelu
     pretrained: openai
     classifier: logistic_regression
     seeds:
@@ -74,7 +77,7 @@ baselines:
     cache_embeddings: true
   qwen_vl:
     enabled: true
-    model_id: Qwen/Qwen2.5-VL-3B-Instruct
+    model_id: Qwen/Qwen2.5-VL-7B-Instruct
     prompt_id: qwen_json_v1
     # Compute dtype for the MLLM. bfloat16 has no tensor-core support before
     # Ampere, so float16 is materially faster on Turing (T4) at the same memory
@@ -86,7 +89,7 @@ baselines:
     cache_outputs: true
   assisted_qwen:
     enabled: true
-    base_model_id: Qwen/Qwen2.5-VL-3B-Instruct
+    base_model_id: Qwen/Qwen2.5-VL-7B-Instruct
     prompt_id: assisted_qwen_json_v1
     assistant_source: clip_probe
     include_classifier_pred: true

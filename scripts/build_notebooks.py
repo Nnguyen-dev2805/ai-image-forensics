@@ -108,6 +108,17 @@ Before you start, understand the limits:
 See `docs/runbook-colab-kaggle.md` for the operator runbook.
 """
 
+TITLE_KAGGLE_VERTEX_QWEN = """
+# Phase A/B on Kaggle with Vertex Qwen
+
+This notebook is a notebook-first path for validating
+`Qwen/Qwen2.5-VL-7B-Instruct` through a Google Cloud Vertex AI Dedicated
+Endpoint before that runtime is wired into the `aiforensics` CLI.
+
+CLIP and NPR stay on the existing public CLI path. Qwen is called here through
+the OpenAI-compatible endpoint with Kaggle Secrets based authentication.
+"""
+
 PREFLIGHT_MD = """
 ## 1. Runtime preflight
 
@@ -280,9 +291,10 @@ Secrets if a private clone needs authentication.
 """
 
 REPO_CODE_TEMPLATE = """
-# User-editable inputs.
+# User-editable inputs. The defaults below are this project's own values so a
+# fresh session needs no editing; override them for a fork or mirror.
 REPO_ROOT = Path("{repo_root}")
-REPO_GIT_URL = ""  # e.g. "https://github.com/<owner>/<repo>.git"; leave empty to skip cloning
+REPO_GIT_URL = "https://github.com/Nnguyen-dev2805/ai-image-forensics.git"
 
 if not REPO_ROOT.exists() and REPO_GIT_URL:
     REPO_ROOT.parent.mkdir(parents=True, exist_ok=True)
@@ -321,6 +333,16 @@ set -euo pipefail
 cd "$AIF_REPO_ROOT"
 python -m pip install --quiet --upgrade pip
 python -m pip install -e ".[clip,qwen,npr]"
+"""
+
+INSTALL_VERTEX_CODE = """
+%%bash
+set -euo pipefail
+
+cd "$AIF_REPO_ROOT"
+python -m pip install --quiet --upgrade pip
+python -m pip install -e ".[clip,npr]"
+python -m pip install --quiet openai google-auth
 """
 
 INSTALL_ENV_CODE = """
@@ -451,8 +473,8 @@ KAGGLE_WORKING_ROOT = Path("/kaggle/working")  # writable, ephemeral
 # Full path to the attached dataset directory that holds the images. Kaggle
 # mounts datasets under different shapes (/kaggle/input/<slug> and
 # /kaggle/input/datasets/<owner>/<slug> both occur), so give the whole path
-# instead of assuming one layout.
-INPUT_DATA_DIR = KAGGLE_INPUT_ROOT / "<your-images-dataset>"
+# instead of assuming one layout. Prefilled with this project's dataset.
+INPUT_DATA_DIR = KAGGLE_INPUT_ROOT / "datasets/yangsangtai/tiny-genimage"
 INPUT_CHECKPOINT_DIR = KAGGLE_INPUT_ROOT / "<your-npr-checkpoint-dataset>"
 
 # Set True to build manifests from a GenImage-layout INPUT_DATA_DIR in this
@@ -679,6 +701,156 @@ FULL_RUN_CELLS = [
     'aiforensics report --config "$AIF_CONFIG"',
 ]
 
+VERTEX_CLI_CELLS = [
+    'aiforensics prepare ${AIF_PREPARE_ARGS} --config "$AIF_CONFIG"',
+    'aiforensics run --baseline clip_probe --config "$AIF_CONFIG"',
+    'aiforensics run --baseline npr --config "$AIF_CONFIG"',
+    'aiforensics evaluate --config "$AIF_CONFIG"',
+    'aiforensics report --config "$AIF_CONFIG"',
+]
+
+VERTEX_AUTH_MD = """
+## 8. Vertex Qwen endpoint preflight
+
+This validates the cloud Qwen path before the CLI runtime is changed.
+Authentication comes from the Kaggle Secret named
+`GOOGLE_APPLICATION_CREDENTIALS`. The secret value is the service-account JSON
+payload. The notebook parses it in memory, refreshes Google credentials, and
+passes the resulting bearer token to the OpenAI-compatible client.
+
+Credential material is never printed.
+"""
+
+VERTEX_AUTH_CODE = """
+# AIF_SECTION: vertex_qwen
+import json
+
+from google.auth.transport.requests import Request
+from google.oauth2 import service_account
+from kaggle_secrets import UserSecretsClient
+from openai import OpenAI
+
+VERTEX_PROJECT_ID = "579187260419"
+VERTEX_LOCATION = "asia-southeast1"
+VERTEX_ENDPOINT_ID = "mg-endpoint-ccc259a2-c268-4ca6-8713-3bcdaaaf5909"
+VERTEX_ENDPOINT_DOMAIN = (
+    "mg-endpoint-ccc259a2-c268-4ca6-8713-3bcdaaaf5909."
+    "asia-southeast1-635507464424.prediction.vertexai.goog"
+)
+VERTEX_MODEL_ID = "qwen2_5-vl-7b-instruct-1788570383931"
+VERTEX_ENDPOINT_PATH = (
+    "/v1/projects/579187260419/locations/asia-southeast1/endpoints/"
+    "mg-endpoint-ccc259a2-c268-4ca6-8713-3bcdaaaf5909"
+)
+EXPECTED_BASE_URL = f"https://{VERTEX_ENDPOINT_DOMAIN}{VERTEX_ENDPOINT_PATH}"
+
+
+def build_vertex_base_url(project_id: str, location: str, endpoint_id: str, domain: str) -> str:
+    cleaned_domain = domain.removeprefix("https://").rstrip("/")
+    if cleaned_domain == "aiplatform.googleapis.com":
+        raise ValueError("Dedicated Endpoint runs must use the prediction.vertexai.goog domain")
+    if not cleaned_domain.endswith(".prediction.vertexai.goog"):
+        raise ValueError(f"Unexpected Vertex dedicated endpoint domain: {cleaned_domain}")
+    return (
+        f"https://{cleaned_domain}/v1/projects/{project_id}"
+        f"/locations/{location}/endpoints/{endpoint_id}"
+    )
+
+
+BASE_URL = build_vertex_base_url(
+    VERTEX_PROJECT_ID,
+    VERTEX_LOCATION,
+    VERTEX_ENDPOINT_ID,
+    VERTEX_ENDPOINT_DOMAIN,
+)
+if BASE_URL != EXPECTED_BASE_URL:
+    raise RuntimeError(f"Unexpected Vertex base URL: {BASE_URL}")
+
+user_secrets = UserSecretsClient()
+service_account_json = user_secrets.get_secret("GOOGLE_APPLICATION_CREDENTIALS")
+service_account_info = json.loads(service_account_json)
+credentials = service_account.Credentials.from_service_account_info(
+    service_account_info,
+    scopes=["https://www.googleapis.com/auth/cloud-platform"],
+)
+credentials.refresh(Request())
+
+client = OpenAI(
+    api_key=credentials.token,
+    base_url=BASE_URL,
+)
+
+print("vertex base url:", BASE_URL)
+print("vertex model id:", VERTEX_MODEL_ID)
+print("vertex credentials: loaded and refreshed")
+"""
+
+VERTEX_QWEN_MD = """
+## 9. Call Qwen through Vertex
+
+This is an endpoint smoke call, not the final CLI integration. It sends one
+image to the Dedicated Endpoint using the OpenAI-compatible chat-completions
+path. After this is proven on Kaggle, the same request builder can move behind
+the `qwen_vl` and `assisted_qwen` adapters.
+"""
+
+VERTEX_QWEN_CODE = """
+# AIF_SECTION: vertex_qwen
+import base64
+import mimetypes
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+
+def first_image_under(root: Path) -> Path:
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS:
+            return path
+    raise FileNotFoundError(f"No image found under {root}")
+
+
+def image_data_url(path: Path) -> str:
+    media_type = mimetypes.guess_type(path.name)[0] or "image/png"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{media_type};base64,{encoded}"
+
+
+VERTEX_QWEN_PROMPT = \"\"\"You are an image-forensics classifier.
+
+Classify the provided image as either "real" or "fake".
+Return exactly one JSON object with keys: label, confidence, evidence.
+label must be "real" or "fake"; confidence must be a number from 0 to 1.
+\"\"\"
+
+VERTEX_TEST_IMAGE = first_image_under(DATA_ROOT)
+print("vertex test image:", VERTEX_TEST_IMAGE)
+
+response = client.chat.completions.create(
+    model="qwen2_5-vl-7b-instruct-1788570383931",
+    messages=[
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": VERTEX_QWEN_PROMPT},
+                {"type": "image_url", "image_url": {"url": image_data_url(VERTEX_TEST_IMAGE)}},
+            ],
+        }
+    ],
+    temperature=0,
+    max_tokens=256,
+)
+
+print(response.choices[0].message.content)
+"""
+
+VERTEX_RUN_MD = """
+## 10. Existing CLI path for CLIP and NPR
+
+Until the Vertex request builder is moved into `src/aiforensics`, this notebook
+keeps Qwen out of the CLI run cells. CLIP and NPR still use the public CLI, and
+the final `evaluate`/`report` cells summarize whatever in-scope artifacts exist.
+"""
+
 ARTIFACT_MD = """
 ## 9. Artifacts
 
@@ -812,12 +984,57 @@ def build(platform: str) -> dict:
     return notebook(cells)
 
 
+def build_kaggle_vertex_qwen() -> dict:
+    cells: list[dict] = [
+        md(TITLE_KAGGLE_VERTEX_QWEN),
+        md(PREFLIGHT_MD),
+        code(
+            PREFLIGHT_CODE.replace(
+                'CLI_VENV_PATH = Path("/content/aiforensics-venv310")',
+                'CLI_VENV_PATH = Path("/kaggle/working/aiforensics-venv310")',
+            )
+        ),
+        md(PROVISION_MD),
+        code(PROVISION_CODE),
+        md(VERIFY_PY_MD),
+        code(VERIFY_PY_CODE),
+        md(REPO_MD_KAGGLE),
+        code(REPO_CODE_TEMPLATE.format(repo_root="/kaggle/working/ai-image-forensics")),
+        md(INSTALL_MD),
+        code(INSTALL_ENV_CODE),
+        code(INSTALL_VERTEX_CODE),
+        md(VERIFY_CLI_MD),
+        code(VERIFY_CLI_CODE),
+        md(STORAGE_MD_KAGGLE),
+        code(STORAGE_CODE_KAGGLE),
+        md(CONFIG_MD),
+        code(CONFIG_CODE_TEMPLATE.format(platform="kaggle_vertex_qwen")),
+        md(VALIDATE_MD),
+        code(VALIDATE_CODE),
+        md(VERTEX_AUTH_MD),
+        code(VERTEX_AUTH_CODE),
+        md(VERTEX_QWEN_MD),
+        code(VERTEX_QWEN_CODE),
+        md(VERTEX_RUN_MD),
+        code(PREPARE_ENV_CODE),
+        *[full_run_cell(command) for command in VERTEX_CLI_CELLS],
+        md(ARTIFACT_MD),
+        code(ARTIFACT_CODE),
+    ]
+    return notebook(cells)
+
+
 def main() -> None:
     NOTEBOOK_DIR.mkdir(parents=True, exist_ok=True)
     for platform in ("colab", "kaggle"):
         path = NOTEBOOK_DIR / f"{platform}_phase_ab.ipynb"
         path.write_text(json.dumps(build(platform), indent=1) + "\n", encoding="utf-8")
         print("wrote", path)
+    vertex_path = NOTEBOOK_DIR / "kaggle_vertex_qwen_phase_ab.ipynb"
+    vertex_path.write_text(
+        json.dumps(build_kaggle_vertex_qwen(), indent=1) + "\n", encoding="utf-8"
+    )
+    print("wrote", vertex_path)
 
 
 if __name__ == "__main__":

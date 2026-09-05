@@ -124,7 +124,7 @@ Run policy:
 
 ### Qwen-VL
 
-`qwen_vl` uses `Qwen/Qwen2.5-VL-3B-Instruct` as the single Phase A/B MLLM. It runs deterministic inference with one structured prompt. The model must return parseable JSON with `label`, `confidence`, and `evidence`.
+`qwen_vl` uses `Qwen/Qwen2.5-VL-7B-Instruct` as the single Phase A/B MLLM. It runs deterministic inference with one structured prompt. The model must return parseable JSON with `label`, `confidence`, and `evidence`.
 
 The adapter stores:
 
@@ -262,4 +262,3 @@ Phase A/B implementation is acceptable when:
 - `evaluate` runs on smoke outputs.
 - `report` generates a Markdown report.
 - Qwen/NPR either run in the available environment or write clear `failed`/`deferred` artifacts with logs.
-

@@ -877,7 +877,7 @@ The existing smoke config intentionally has:
 ```yaml
 assisted_qwen:
   enabled: false
-  base_model_id: Qwen/Qwen2.5-VL-3B-Instruct
+  base_model_id: Qwen/Qwen2.5-VL-7B-Instruct
   prompt_id: assisted_qwen_json_v1
   assistant_source: clip_probe
   include_classifier_pred: true
