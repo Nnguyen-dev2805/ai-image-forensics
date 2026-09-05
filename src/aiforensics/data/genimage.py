@@ -151,9 +151,12 @@ def _collect_candidates(
     data_root: Path,
     generators: list[str],
     warnings: list[str],
+    *,
+    split_dirs: tuple[str, ...] | None = None,
 ) -> list[_Candidate]:
     """Walk ``<generator>/<split>/{ai,nature}`` for the requested generators."""
     candidates: list[_Candidate] = []
+    active_splits = split_dirs if split_dirs is not None else tuple(_SPLIT_DIRS.keys())
 
     for generator in generators:
         generator_dir = data_root / generator
@@ -165,7 +168,7 @@ def _collect_candidates(
             )
 
         found_any = False
-        for split_dir in _SPLIT_DIRS:
+        for split_dir in active_splits:
             split_path = generator_dir / split_dir
             if not split_path.is_dir():
                 continue
@@ -187,7 +190,7 @@ def _collect_candidates(
         if not found_any:
             warnings.append(
                 f"Generator {generator!r} has no readable images under "
-                f"{sorted(_LABEL_DIRS)} in {sorted(_SPLIT_DIRS)}"
+                f"{sorted(_LABEL_DIRS)} in {sorted(active_splits)}"
             )
 
     return candidates
@@ -403,7 +406,10 @@ def build_genimage_manifests(config: AppConfig) -> ManifestBuildResult:
                 f"available generators under {data_root}: "
                 f"{discover_generator_dirs(data_root) or 'none'}"
             )
-        unseen_candidates = _collect_candidates(data_root, list(unseen.generators), warnings)
+        allowed_splits = (unseen.source_split,) if unseen.source_split else None
+        unseen_candidates = _collect_candidates(
+            data_root, list(unseen.generators), warnings, split_dirs=allowed_splits
+        )
         unseen_candidates = _subsample(unseen_candidates, unseen.max_images, unseen.balance_labels)
         records = _to_records(
             unseen_candidates, unseen.split, data_root, seen_checksums, duplicate_counter, warnings

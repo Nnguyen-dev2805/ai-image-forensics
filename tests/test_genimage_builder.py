@@ -641,3 +641,66 @@ class TestManifestContract:
         assert train.fake_count == 3
         assert train.real_count == 2
         assert train.generators == ("sdv5",)
+
+
+class TestGenImageUnseenSourceSplit:
+    def test_unseen_source_split_val_collects_only_val_images(self, tmp_path):
+        root = tmp_path / "data"
+        _make_tree(root, "midjourney", train_ai=5, train_nature=5, val_ai=3, val_nature=3, start=0)
+        _make_tree(root, "adm", train_ai=4, train_nature=4, val_ai=2, val_nature=2, start=100)
+
+        config = _config(
+            tmp_path,
+            tiny_generators=[],
+            unseen_generators=["adm", "midjourney"],
+            tiny_enabled=False,
+            unseen_enabled=True,
+            unseen_max=0,
+        )
+        config.datasets.genimage_unseen.source_split = "val"
+
+        result = build_genimage_manifests(config)
+        assert len(result.manifests) == 1
+        unseen_manifest = result.manifests[0]
+        assert unseen_manifest.record_count == 10  # 6 midjourney val + 4 adm val
+        assert unseen_manifest.fake_count == 5
+        assert unseen_manifest.real_count == 5
+
+        records = load_manifest(config.datasets.genimage_unseen.manifest, data_root=root)
+        assert len(records) == 10
+        for r in records:
+            # Confirm no train images leaked
+            assert "train" not in str(r.path)
+            assert "val" in str(r.path)
+            assert r.sample_id.startswith("genimage/val/")
+
+    def test_unseen_source_split_val_with_subsampling(self, tmp_path):
+        root = tmp_path / "data"
+        _make_tree(
+            root, "midjourney", train_ai=10, train_nature=10, val_ai=6, val_nature=6, start=0
+        )
+        _make_tree(root, "adm", train_ai=10, train_nature=10, val_ai=4, val_nature=4, start=100)
+
+        config = _config(
+            tmp_path,
+            tiny_generators=[],
+            unseen_generators=["adm", "midjourney"],
+            tiny_enabled=False,
+            unseen_enabled=True,
+            unseen_max=4,
+            balance_labels=True,
+        )
+        config.datasets.genimage_unseen.source_split = "val"
+
+        result = build_genimage_manifests(config)
+        unseen_manifest = result.manifests[0]
+        # 4 per generator (2 real, 2 fake) * 2 generators = 8 total
+        assert unseen_manifest.record_count == 8
+        assert unseen_manifest.fake_count == 4
+        assert unseen_manifest.real_count == 4
+
+        records = load_manifest(config.datasets.genimage_unseen.manifest, data_root=root)
+        assert len(records) == 8
+        for r in records:
+            assert "train" not in str(r.path)
+            assert "val" in str(r.path)

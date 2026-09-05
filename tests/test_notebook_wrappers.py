@@ -18,7 +18,9 @@ NOTEBOOK_DIR = REPO_ROOT / "notebooks"
 COLAB_NOTEBOOK = NOTEBOOK_DIR / "colab_phase_ab.ipynb"
 KAGGLE_NOTEBOOK = NOTEBOOK_DIR / "kaggle_phase_ab.ipynb"
 KAGGLE_VERTEX_QWEN_NOTEBOOK = NOTEBOOK_DIR / "kaggle_vertex_qwen_phase_ab.ipynb"
+KAGGLE_VERTEX_QWEN_ALL_VAL_NOTEBOOK = NOTEBOOK_DIR / "kaggle_vertex_qwen_all_val.ipynb"
 RUNBOOK = REPO_ROOT / "docs" / "runbook-colab-kaggle.md"
+
 
 NOTEBOOK_PATHS = {"colab": COLAB_NOTEBOOK, "kaggle": KAGGLE_NOTEBOOK}
 PLATFORMS = tuple(NOTEBOOK_PATHS)
@@ -154,6 +156,11 @@ def notebooks() -> dict[str, dict]:
 @pytest.fixture(scope="module")
 def vertex_qwen_notebook() -> dict:
     return _load_notebook(KAGGLE_VERTEX_QWEN_NOTEBOOK)
+
+
+@pytest.fixture(scope="module")
+def vertex_qwen_all_val_notebook() -> dict:
+    return _load_notebook(KAGGLE_VERTEX_QWEN_ALL_VAL_NOTEBOOK)
 
 
 @pytest.fixture(scope="module")
@@ -469,6 +476,117 @@ def test_vertex_qwen_notebook_does_not_print_tokens_or_secret_json(
         "print(client.api_key)",
     ):
         assert forbidden not in code
+
+
+def test_vertex_qwen_notebook_downloads_npr_checkpoint_idempotently(
+    vertex_qwen_notebook: dict,
+) -> None:
+    code = _code_source(vertex_qwen_notebook)
+    assert 'INPUT_CHECKPOINT_DIR = KAGGLE_WORKING_ROOT / "npr-checkpoint"' in code
+    assert "https://raw.githubusercontent.com/chuangchuangtan/" in code
+    assert "NPR-DeepfakeDetection/main/NPR.pth" in code
+    assert "NPR_CHECKPOINT_PATH.exists()" in code
+    assert "NPR_CHECKPOINT_PATH.stat().st_size > 0" in code
+    assert "NPR checkpoint already exists; skipping download" in code
+
+
+def test_vertex_qwen_notebook_skips_install_when_dependencies_import(
+    vertex_qwen_notebook: dict,
+) -> None:
+    code = _code_source(vertex_qwen_notebook)
+    assert "def vertex_dependencies_ready()" in code
+    assert 'importlib.import_module("kaggle_secrets")' in code
+    assert 'importlib.import_module("requests")' in code
+    assert "from google.auth.transport.requests import Request" in code
+    assert "from google.oauth2 import service_account" in code
+    assert "from openai import OpenAI" in code
+    assert "Vertex dependencies already import; skipping pip install" in code
+
+
+def test_vertex_qwen_all_val_notebook_exists_and_parses(
+    vertex_qwen_all_val_notebook: dict,
+) -> None:
+    assert isinstance(vertex_qwen_all_val_notebook, dict)
+    assert vertex_qwen_all_val_notebook.get("cells"), "notebook has no cells"
+    assert vertex_qwen_all_val_notebook.get("nbformat") == 4
+    for index, cell in enumerate(_code_cells(vertex_qwen_all_val_notebook)):
+        assert cell.get("execution_count", None) is None, f"cell {index} has an execution_count"
+        assert cell.get("outputs", []) == [], f"cell {index} has committed outputs"
+
+
+def test_vertex_qwen_all_val_notebook_no_forbidden_imports(
+    vertex_qwen_all_val_notebook: dict,
+) -> None:
+    code = _code_source(vertex_qwen_all_val_notebook)
+    for pattern in FORBIDDEN_IMPORT_PATTERNS:
+        assert not re.search(pattern, code, re.MULTILINE), f"forbidden import found: {pattern}"
+
+
+def test_vertex_qwen_all_val_notebook_uses_kaggle_secret_flow(
+    vertex_qwen_all_val_notebook: dict,
+) -> None:
+    code = _code_source(vertex_qwen_all_val_notebook)
+    assert "from kaggle_secrets import UserSecretsClient" in code
+    assert 'get_secret("GOOGLE_APPLICATION_CREDENTIALS")' in code
+    assert "service_account.Credentials.from_service_account_info" in code
+    assert "credentials.refresh(Request())" in code
+    assert "credentials.token" in code
+    assert "private_key" not in code
+    assert "access_token" not in code
+
+
+def test_vertex_qwen_all_val_notebook_uses_dedicated_endpoint_domain(
+    vertex_qwen_all_val_notebook: dict,
+) -> None:
+    code = _code_source(vertex_qwen_all_val_notebook)
+    assert "mg-endpoint-ccc259a2-c268-4ca6-8713-3bcdaaaf5909." in code
+    assert "asia-southeast1-635507464424.prediction.vertexai.goog" in code
+    assert "https://aiplatform.googleapis.com" not in code
+    assert "/v1/projects/579187260419/locations/asia-southeast1/endpoints/" in code
+    assert "chat.completions.create" in code
+    assert 'model="qwen2_5-vl-7b-instruct-1788570383931"' in code
+
+
+def test_vertex_qwen_all_val_notebook_does_not_print_tokens_or_secret_json(
+    vertex_qwen_all_val_notebook: dict,
+) -> None:
+    code = _code_source(vertex_qwen_all_val_notebook)
+    for forbidden in (
+        "print(service_account_json)",
+        "print(credentials.token)",
+        "print(client.api_key)",
+    ):
+        assert forbidden not in code
+
+
+def test_vertex_qwen_all_val_notebook_runs_only_qwen_through_cli(
+    vertex_qwen_all_val_notebook: dict,
+) -> None:
+    full_run = _section_source(vertex_qwen_all_val_notebook, FULL_RUN_MARKER)
+    assert "aiforensics prepare" in full_run
+    assert "aiforensics run --baseline qwen_vl" in full_run
+    assert "aiforensics evaluate" in full_run
+    assert "aiforensics report" in full_run
+    # Baselines that must NOT run
+    assert "--baseline clip_probe" not in full_run
+    assert "--baseline npr" not in full_run
+    assert "--baseline assisted_qwen" not in full_run
+    # Execution order check
+    assert full_run.find("aiforensics prepare") < full_run.find("--baseline qwen_vl")
+    assert full_run.find("--baseline qwen_vl") < full_run.find("aiforensics evaluate")
+    assert full_run.find("aiforensics evaluate") < full_run.find("aiforensics report")
+
+
+def test_vertex_qwen_all_val_notebook_has_max_images_and_all_val_config(
+    vertex_qwen_all_val_notebook: dict,
+) -> None:
+    code = _code_source(vertex_qwen_all_val_notebook)
+    assert re.search(r"^\s*MAX_IMAGES_PER_GENERATOR\s*=\s*0", code, re.MULTILINE)
+    assert "configs/qwen_vertex_all_val.yaml" in code
+    assert "qwen_vertex_all_val_report.md" in code
+    assert "outputs-qwen-all-val" in code
+    assert 'source_split"] = "val"' in code or "'source_split': 'val'" in code
+    assert "discover_generator_dirs(DATA_ROOT)" in code
 
 
 # ---------------------------------------------------------------------------

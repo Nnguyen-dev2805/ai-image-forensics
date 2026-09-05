@@ -54,6 +54,7 @@ qwen = [
 vertex = [
     { name = "google-auth" },
     { name = "openai" },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -69,6 +70,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "qwen-vl-utils", marker = "extra == 'qwen'" },
+    { name = "requests", marker = "extra == 'vertex'" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
     { name = "scikit-learn", specifier = ">=1.4.0" },
     { name = "torch", marker = "extra == 'npr'" },

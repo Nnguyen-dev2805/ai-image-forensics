@@ -47,6 +47,8 @@ class GenImageUnseenConfig(BaseModel):
     balance_labels: bool
     split: str
     manifest: Path
+    # Optional on-disk split to collect from (e.g. "val"); defaults to all splits.
+    source_split: str | None = None
 
 
 class SynthbusterConfig(BaseModel):

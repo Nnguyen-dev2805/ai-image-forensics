@@ -7,6 +7,8 @@ import pytest
 from aiforensics.config.load import load_config
 from aiforensics.data.manifest import ManifestRecord
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 RAW_FAKE = '{"label": "fake", "confidence": 0.75, "evidence": "synthetic texture"}'
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
@@ -35,6 +37,15 @@ def test_quick_config_enables_qwen_vertex_provider() -> None:
     assert config.baselines.assisted_qwen.provider == "vertex_openai"
     assert config.baselines.qwen_vl.vertex_endpoint_domain.endswith(".prediction.vertexai.goog")
     assert config.baselines.qwen_vl.vertex_model_id == "qwen2_5-vl-7b-instruct-1788570383931"
+
+
+def test_vertex_extra_includes_google_auth_requests_transport_dependency() -> None:
+    pyproject_text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    vertex_section = pyproject_text.split("vertex = [", maxsplit=1)[1].split("]", maxsplit=1)[0]
+
+    assert '"openai"' in vertex_section
+    assert '"google-auth"' in vertex_section
+    assert '"requests"' in vertex_section
 
 
 def test_vertex_base_url_uses_dedicated_endpoint_domain() -> None:

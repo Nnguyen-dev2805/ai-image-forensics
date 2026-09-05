@@ -33,6 +33,7 @@ qwen = [
 vertex = [
     "openai",
     "google-auth",
+    "requests",
 ]
 npr = [
     # Only what the pinned NPR runtime bridge imports: networks/resnet.py needs
