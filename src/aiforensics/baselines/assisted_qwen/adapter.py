@@ -489,13 +489,21 @@ class AssistedQwenAdapter(BaselineAdapter):
                 if cfg.provider == "vertex_openai":
                     if model is None:
                         model = self._create_vertex_client(cfg)
-                    raw_output = self._generate_one_image_vertex(
-                        model,
-                        record.path,
-                        prompt_text,
-                        cfg.max_new_tokens,
-                        cfg.temperature,
-                    )
+                    try:
+                        raw_output = self._generate_one_image_vertex(
+                            model,
+                            record.path,
+                            prompt_text,
+                            cfg.max_new_tokens,
+                            cfg.temperature,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Vertex Assisted Qwen inference failed for %s: %s. Marking as failed.",
+                            record.path,
+                            e,
+                        )
+                        raw_output = f"ERROR: Vertex Assisted Qwen API error: {e}"
                 elif model is None:
                     try:
                         import importlib.util

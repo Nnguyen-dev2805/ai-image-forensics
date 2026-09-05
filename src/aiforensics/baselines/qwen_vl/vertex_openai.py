@@ -84,7 +84,7 @@ def create_vertex_openai_client(
         endpoint_id=endpoint_id or "",
         endpoint_domain=endpoint_domain or "",
     )
-    return OpenAI(api_key=credentials.token, base_url=base_url)
+    return OpenAI(api_key=credentials.token, base_url=base_url, max_retries=5)
 
 
 def image_data_url(image_path: Path) -> str:

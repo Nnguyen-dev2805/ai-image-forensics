@@ -828,6 +828,7 @@ def _summary(
     total_records: int | None = 2,
     overall: dict[str, float | None] | None = None,
     by_source: tuple = (),
+    prediction_path: Path | None = None,
 ) -> md.RunSummary:
     return md.RunSummary(
         baseline=baseline,
@@ -841,7 +842,11 @@ def _summary(
         total_records=total_records,
         overall=overall,
         by_source=by_source,
-        prediction_path=Path("outputs") / (run_id or "none") / "predictions.jsonl",
+        prediction_path=(
+            prediction_path
+            if prediction_path is not None
+            else Path("outputs") / (run_id or "none") / "predictions.jsonl"
+        ),
     )
 
 
@@ -983,6 +988,53 @@ class TestBaselineStatusTable:
         for line in status_section.splitlines():
             if "second line" in line:
                 assert line.startswith("|")
+
+    def test_mllm_prediction_and_parse_statistics_table(self, tmp_path):
+        config = _make_config(tmp_path)
+        pred_file = tmp_path / "predictions.jsonl"
+        pred_file.write_text(
+            json.dumps(
+                {
+                    "sample_id": "1",
+                    "model_name": "qwen_vl",
+                    "source": "src1",
+                    "label_true": "real",
+                    "label_pred": "real",
+                    "score_fake": 0.1,
+                    "parse_status": "parsed",
+                }
+            )
+            + "\n"
+            + json.dumps(
+                {
+                    "sample_id": "2",
+                    "model_name": "qwen_vl",
+                    "source": "src1",
+                    "label_true": "fake",
+                    "label_pred": "fake",
+                    "score_fake": 0.9,
+                    "parse_status": "recovered",
+                }
+            )
+            + "\n"
+            + json.dumps(
+                {
+                    "sample_id": "3",
+                    "model_name": "qwen_vl",
+                    "source": "src1",
+                    "label_true": "real",
+                    "label_pred": "unknown",
+                    "score_fake": None,
+                    "parse_status": "failed",
+                }
+            )
+            + "\n"
+        )
+        run = _summary("qwen_vl", "completed", run_id="qwen_run", prediction_path=pred_file)
+        runs = [run]
+        text = md.build_phase_ab_report(config, runs)
+        assert "MLLM prediction and parse statistics:" in text
+        assert "| qwen_vl | 3 | 2 | 1 | 1 | 1 | 66.67% |" in text
 
 
 class TestOverallMetrics:

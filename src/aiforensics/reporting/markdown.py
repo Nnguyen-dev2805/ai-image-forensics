@@ -680,6 +680,42 @@ def _render_baseline_status(
             ]
         )
 
+    # MLLM prediction and parse statistics (success vs failed counts)
+    mllm_runs = [
+        r
+        for r in resolved
+        if r.baseline in ("qwen_vl", "assisted_qwen") and r.status == "completed"
+    ]
+    if mllm_runs:
+        from aiforensics.schemas.predictions import load_predictions
+
+        lines.extend(
+            [
+                "MLLM prediction and parse statistics:",
+                "",
+                "| Baseline | Total Images | Succeeded | Parsed (Strict) | "
+                "Recovered | Failed | Success Rate |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for run in mllm_runs:
+            if run.prediction_path and run.prediction_path.is_file():
+                try:
+                    records = load_predictions(run.prediction_path)
+                    total = len(records)
+                    parsed = sum(1 for r in records if r.parse_status == "parsed")
+                    recovered = sum(1 for r in records if r.parse_status == "recovered")
+                    failed = sum(1 for r in records if r.parse_status == "failed")
+                    succeeded = parsed + recovered
+                    rate = (succeeded / total * 100) if total > 0 else 0.0
+                    lines.append(
+                        f"| {_escape_cell(run.baseline)} | {total} | {succeeded} | "
+                        f"{parsed} | {recovered} | {failed} | {rate:.2f}% |"
+                    )
+                except Exception:
+                    pass
+        lines.append("")
+
 
 def _render_overall_metrics(
     resolved: list[RunSummary],
