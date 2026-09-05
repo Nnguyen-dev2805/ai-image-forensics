@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import mimetypes
 import os
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class VertexQwenError(RuntimeError):
@@ -84,7 +87,9 @@ def create_vertex_openai_client(
         endpoint_id=endpoint_id or "",
         endpoint_domain=endpoint_domain or "",
     )
-    return OpenAI(api_key=credentials.token, base_url=base_url, max_retries=5)
+    client = OpenAI(api_key=credentials.token, base_url=base_url, max_retries=5)
+    client._vertex_credentials = credentials
+    return client
 
 
 def image_data_url(image_path: Path) -> str:
@@ -107,20 +112,51 @@ def generate_one_image_via_vertex(
     if not model_id:
         raise VertexQwenError("Missing Vertex Qwen model id")
 
-    response = client.chat.completions.create(
-        model=model_id,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt_text},
-                    {"type": "image_url", "image_url": {"url": image_data_url(image_path)}},
-                ],
-            }
-        ],
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    credentials = getattr(client, "_vertex_credentials", None)
+    if credentials is not None:
+        try:
+            from google.auth.transport.requests import Request
+
+            if not credentials.valid:
+                credentials.refresh(Request())
+                client.api_key = credentials.token
+        except Exception as e:
+            logger.warning("Could not pre-refresh Vertex credentials: %s", e)
+
+    def _call():
+        return client.chat.completions.create(
+            model=model_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt_text},
+                        {"type": "image_url", "image_url": {"url": image_data_url(image_path)}},
+                    ],
+                }
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    try:
+        response = _call()
+    except Exception as exc:
+        err_msg = str(exc).lower()
+        if (
+            "401" in err_msg or "unauthorized" in err_msg or "authentication" in err_msg
+        ) and credentials is not None:
+            try:
+                from google.auth.transport.requests import Request
+
+                credentials.refresh(Request())
+                client.api_key = credentials.token
+                response = _call()
+            except Exception as refresh_exc:
+                raise exc from refresh_exc
+        else:
+            raise
+
     content = response.choices[0].message.content
     if not isinstance(content, str):
         raise VertexQwenError("Vertex Qwen response did not contain text content")

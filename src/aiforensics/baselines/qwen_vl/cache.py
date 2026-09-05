@@ -14,6 +14,9 @@ def read_qwen_cache(cache_path: Path, sample_id: str, counts: dict) -> str | Non
             cache_data = json.loads(raw_text)
             if isinstance(cache_data, dict) and isinstance(cache_data.get("raw_output"), str):
                 raw_output = cache_data["raw_output"]
+                if raw_output.startswith("ERROR: "):
+                    counts["cache_misses"] += 1
+                    return None
                 counts["cache_hits"] += 1
                 return raw_output
             else:
@@ -27,6 +30,8 @@ def read_qwen_cache(cache_path: Path, sample_id: str, counts: dict) -> str | Non
 
 
 def write_qwen_cache(cache_path: Path, sample_id: str, raw_output: str):
+    if raw_output.startswith("ERROR: "):
+        return
     try:
         tmp_fd, tmp_name = tempfile.mkstemp(dir=cache_path.parent, prefix=".tmp", text=True)
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:

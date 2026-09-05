@@ -200,3 +200,58 @@ def test_vertex_cache_key_changes_with_endpoint(
     ]
     assert RAW_FAKE in cache_payloads
     assert len(cache_payloads) == 2
+
+
+def test_qwen_cache_ignores_error_outputs(tmp_path: Path) -> None:
+    from aiforensics.baselines.qwen_vl.cache import read_qwen_cache, write_qwen_cache
+
+    cache_file = tmp_path / "cache.json"
+    counts = {"cache_hits": 0, "cache_misses": 0}
+
+    # Write an error output - should not actually write
+    write_qwen_cache(cache_file, "1", "ERROR: 401 Unauthorized")
+    assert not cache_file.exists()
+
+    # Manually write an error JSON to disk to simulate an older cache
+    cache_file.write_text(json.dumps({"raw_output": "ERROR: 500 Server Error"}), encoding="utf-8")
+    assert read_qwen_cache(cache_file, "1", counts) is None
+    assert counts["cache_misses"] == 1
+    assert counts["cache_hits"] == 0
+
+    # Normal output should be cached and read
+    write_qwen_cache(cache_file, "1", '{"label": "real"}')
+    res = read_qwen_cache(cache_file, "1", counts)
+    assert res == '{"label": "real"}'
+    assert counts["cache_hits"] == 1
+
+
+def test_generate_one_image_via_vertex_refreshes_expired_token(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+
+    from aiforensics.baselines.qwen_vl.vertex_openai import generate_one_image_via_vertex
+
+    img = tmp_path / "test.jpg"
+    img.write_bytes(b"dummy")
+
+    mock_credentials = MagicMock()
+    mock_credentials.valid = False
+    mock_credentials.token = "refreshed-token"
+
+    mock_client = MagicMock()
+    mock_client._vertex_credentials = mock_credentials
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content="result text"))]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    res = generate_one_image_via_vertex(
+        client=mock_client,
+        model_id="test-model",
+        image_path=img,
+        prompt_text="detect",
+        max_tokens=16,
+        temperature=0.0,
+    )
+
+    assert res == "result text"
+    mock_credentials.refresh.assert_called_once()
+    assert mock_client.api_key == "refreshed-token"
