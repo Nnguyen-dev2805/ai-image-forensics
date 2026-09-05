@@ -437,14 +437,26 @@ def test_vertex_qwen_notebook_uses_dedicated_endpoint_domain(
     assert 'model="qwen2_5-vl-7b-instruct-1788570383931"' in code
 
 
-def test_vertex_qwen_notebook_keeps_qwen_out_of_cli_until_runtime_exists(
+def test_vertex_qwen_notebook_runs_qwen_through_cli(
     vertex_qwen_notebook: dict,
 ) -> None:
     full_run = _section_source(vertex_qwen_notebook, FULL_RUN_MARKER)
     assert "aiforensics run --baseline clip_probe" in full_run
     assert "aiforensics run --baseline npr" in full_run
-    assert "aiforensics run --baseline qwen_vl" not in full_run
-    assert "aiforensics run --baseline assisted_qwen" not in full_run
+    assert "aiforensics run --baseline qwen_vl" in full_run
+    assert "aiforensics run --baseline assisted_qwen" in full_run
+    assert full_run.find("aiforensics evaluate") > full_run.find("--baseline assisted_qwen")
+    assert full_run.find("aiforensics report") > full_run.find("aiforensics evaluate")
+
+
+def test_vertex_qwen_notebook_generates_quick_vertex_config(
+    vertex_qwen_notebook: dict,
+) -> None:
+    code = _code_source(vertex_qwen_notebook)
+    assert "configs/phase_ab_vertex_quick.yaml" in code
+    assert 'provider"] = "vertex_openai"' in code
+    assert "AIF_GOOGLE_APPLICATION_CREDENTIALS_JSON" in code
+    assert "phase_ab_vertex_quick_report.md" in code
 
 
 def test_vertex_qwen_notebook_does_not_print_tokens_or_secret_json(

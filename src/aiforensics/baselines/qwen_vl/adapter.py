@@ -65,13 +65,16 @@ class QwenVLAdapter(BaselineAdapter):
                 raise Exception("No evaluation records found")
 
             # We determine device upfront for logging
-            device = "unknown"
-            try:
-                device = self._get_qwen_device(config)
-            except BaselineDeferredError:
-                device = "deferred"
-            except Exception:
-                device = "failed"
+            if config.baselines.qwen_vl.provider == "vertex_openai":
+                device = "vertex_openai"
+            else:
+                device = "unknown"
+                try:
+                    device = self._get_qwen_device(config)
+                except BaselineDeferredError:
+                    device = "deferred"
+                except Exception:
+                    device = "failed"
 
             predictions = self._run_inference(records, config, run_id, self._counts)
             val_result = validate_predictions(
@@ -102,6 +105,7 @@ class QwenVLAdapter(BaselineAdapter):
                 f.write(f"Run completed successfully for baseline {self.name}\n")
                 f.write(f"Processed {len(records)} records.\n")
                 f.write(f"Model ID: {config.baselines.qwen_vl.model_id}\n")
+                f.write(f"Provider: {config.baselines.qwen_vl.provider}\n")
                 f.write(f"Prompt ID: {config.baselines.qwen_vl.prompt_id}\n")
                 f.write(f"Compute dtype: {config.baselines.qwen_vl.dtype}\n")
                 f.write(f"Resolved device: {device}\n")
@@ -234,6 +238,32 @@ class QwenVLAdapter(BaselineAdapter):
             dtype=config.baselines.qwen_vl.dtype,
         )
 
+    def _create_vertex_client(self, qwen_cfg):
+        from aiforensics.baselines.qwen_vl.vertex_openai import create_vertex_openai_client
+
+        return create_vertex_openai_client(
+            project_id=qwen_cfg.vertex_project_id,
+            location=qwen_cfg.vertex_location,
+            endpoint_id=qwen_cfg.vertex_endpoint_id,
+            endpoint_domain=qwen_cfg.vertex_endpoint_domain,
+            credentials_env_var=qwen_cfg.vertex_credentials_env_var,
+        )
+
+    def _generate_one_image_vertex(
+        self, client, image_path: Path, prompt_text: str, max_new_tokens: int, temperature: float
+    ) -> str:
+        from aiforensics.baselines.qwen_vl.vertex_openai import generate_one_image_via_vertex
+
+        qwen_cfg = self._active_qwen_cfg
+        return generate_one_image_via_vertex(
+            client=client,
+            model_id=qwen_cfg.vertex_model_id,
+            image_path=image_path,
+            prompt_text=prompt_text,
+            max_tokens=max_new_tokens,
+            temperature=temperature,
+        )
+
     def _generate_one_image(
         self, model, processor, image_path: Path, prompt_text: str, device: str, max_new_tokens: int
     ) -> str:
@@ -245,6 +275,7 @@ class QwenVLAdapter(BaselineAdapter):
         self, records: list[ManifestRecord], config: AppConfig, run_id: str, counts: dict
     ) -> list[PredictionRecord]:
         qwen_cfg = config.baselines.qwen_vl
+        self._active_qwen_cfg = qwen_cfg
 
         prompt_text = get_prompt(qwen_cfg.prompt_id)
         cache_enabled = qwen_cfg.cache_outputs
@@ -261,18 +292,26 @@ class QwenVLAdapter(BaselineAdapter):
                 if not record.path.exists():
                     raise Exception(f"Image not found: {record.path}")
                 checksum = hashlib.sha256(record.path.read_bytes()).hexdigest()
-            return cache_key(
-                {
-                    "baseline": "qwen_vl",
-                    "sample_checksum": checksum,
-                    "model_id": qwen_cfg.model_id,
-                    "prompt_id": qwen_cfg.prompt_id,
-                    "dtype": qwen_cfg.dtype,
-                    "temperature": str(qwen_cfg.temperature),
-                    "max_new_tokens": str(qwen_cfg.max_new_tokens),
-                    "output_cache_version": "qwen_vl_raw_v3",
-                }
-            )
+            parts = {
+                "baseline": "qwen_vl",
+                "sample_checksum": checksum,
+                "model_id": qwen_cfg.model_id,
+                "prompt_id": qwen_cfg.prompt_id,
+                "dtype": qwen_cfg.dtype,
+                "temperature": str(qwen_cfg.temperature),
+                "max_new_tokens": str(qwen_cfg.max_new_tokens),
+                "output_cache_version": "qwen_vl_raw_v3",
+            }
+            if qwen_cfg.provider == "vertex_openai":
+                parts.update(
+                    {
+                        "provider": qwen_cfg.provider,
+                        "vertex_endpoint_domain": qwen_cfg.vertex_endpoint_domain or "",
+                        "vertex_endpoint_id": qwen_cfg.vertex_endpoint_id or "",
+                        "vertex_model_id": qwen_cfg.vertex_model_id or "",
+                    }
+                )
+            return cache_key(parts)
 
         model = None
         processor = None
@@ -305,7 +344,17 @@ class QwenVLAdapter(BaselineAdapter):
                 counts["cache_misses"] += 1
 
             if raw_output is None:
-                if model is None:
+                if qwen_cfg.provider == "vertex_openai":
+                    if model is None:
+                        model = self._create_vertex_client(qwen_cfg)
+                    raw_output = self._generate_one_image_vertex(
+                        model,
+                        record.path,
+                        prompt_text,
+                        qwen_cfg.max_new_tokens,
+                        qwen_cfg.temperature,
+                    )
+                elif model is None:
                     try:
                         import importlib.util
 
@@ -323,9 +372,13 @@ class QwenVLAdapter(BaselineAdapter):
                     device = self._get_qwen_device(config)
                     model, processor = self._load_model(config, device)
 
-                raw_output = self._generate_one_image(
-                    model, processor, record.path, prompt_text, device, qwen_cfg.max_new_tokens
-                )
+                    raw_output = self._generate_one_image(
+                        model, processor, record.path, prompt_text, device, qwen_cfg.max_new_tokens
+                    )
+                else:
+                    raw_output = self._generate_one_image(
+                        model, processor, record.path, prompt_text, device, qwen_cfg.max_new_tokens
+                    )
 
                 if cache_enabled and cache_path is not None:
                     from aiforensics.baselines.qwen_vl.cache import write_qwen_cache
