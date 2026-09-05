@@ -388,7 +388,11 @@ class QwenVLAdapter(BaselineAdapter):
                         model, processor, record.path, prompt_text, device, qwen_cfg.max_new_tokens
                     )
 
-                if cache_enabled and cache_path is not None:
+                if (
+                    cache_enabled
+                    and cache_path is not None
+                    and not raw_output.startswith("ERROR: ")
+                ):
                     from aiforensics.baselines.qwen_vl.cache import write_qwen_cache
 
                     write_qwen_cache(cache_path, record.sample_id, raw_output)

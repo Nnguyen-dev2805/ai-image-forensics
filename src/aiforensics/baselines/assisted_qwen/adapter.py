@@ -538,7 +538,11 @@ class AssistedQwenAdapter(BaselineAdapter):
                         model, processor, record.path, prompt_text, device, cfg.max_new_tokens
                     )
 
-                if cache_enabled and cache_path is not None:
+                if (
+                    cache_enabled
+                    and cache_path is not None
+                    and not raw_output.startswith("ERROR: ")
+                ):
                     write_qwen_cache(cache_path, record.sample_id, raw_output)
 
             parse_result = parse_qwen_output(raw_output)
