@@ -241,6 +241,16 @@ dependencies).
 PROVISION_CODE = '''
 def provision_cli_python(venv_path: Path) -> str:
     """Create a Python 3.10 virtual environment and prepend it to PATH."""
+    bin_dir = _venv_bin(venv_path)
+    py_bin = bin_dir / "python"
+    if py_bin.is_file():
+        res = subprocess.run([str(py_bin), "-V"], capture_output=True, text=True)
+        if res.returncode == 0 and "3.10" in res.stdout:
+            print(f"Python 3.10 venv already provisioned at {venv_path}; skipping creation.")
+            os.environ["PATH"] = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+            os.environ["VIRTUAL_ENV"] = str(venv_path)
+            return str(py_bin)
+
     if shutil.which("uv") is None:
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--quiet", "uv"],
@@ -254,10 +264,9 @@ def provision_cli_python(venv_path: Path) -> str:
         check=True,
     )
 
-    bin_dir = _venv_bin(venv_path)
     os.environ["PATH"] = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
     os.environ["VIRTUAL_ENV"] = str(venv_path)
-    return str(bin_dir / "python")
+    return str(py_bin)
 
 
 CLI_PYTHON = provision_cli_python(CLI_VENV_PATH)
@@ -348,9 +357,13 @@ INSTALL_CODE = """
 %%bash
 set -euo pipefail
 
-cd "$AIF_REPO_ROOT"
-python -m pip install --quiet --upgrade pip
-python -m pip install -e ".[clip,qwen,npr]"
+if python -c "import aiforensics" &>/dev/null; then
+    echo "aiforensics is already installed; skipping pip install."
+else
+    cd "$AIF_REPO_ROOT"
+    python -m pip install --quiet --upgrade pip
+    python -m pip install -e ".[clip,qwen,npr]"
+fi
 """
 
 INSTALL_VERTEX_CODE = """
@@ -358,6 +371,16 @@ import importlib
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+
+cli_python = shutil.which("python")
+cli_py_version = (
+    subprocess.run([cli_python, "-V"], capture_output=True, text=True).stdout
+    if cli_python
+    else ""
+)
+if not cli_python or "3.10" not in cli_py_version:
+    cli_python = str(Path("/kaggle/working/aiforensics-venv310/bin/python"))
 
 
 def vertex_dependencies_ready() -> bool:
@@ -370,21 +393,47 @@ def vertex_dependencies_ready() -> bool:
     except ImportError:
         return False
     _ = (OpenAI, Request, service_account)
-    return shutil.which("aiforensics") is not None
+    if shutil.which("aiforensics") is not None:
+        return True
+    res = subprocess.run(
+        [cli_python, "-c", "import aiforensics; print('OK')"],
+        capture_output=True,
+        text=True,
+    )
+    return res.returncode == 0 and "OK" in res.stdout
 
 
 if vertex_dependencies_ready():
     print("Vertex dependencies already import; skipping pip install")
 else:
+    target_py = cli_python if Path(cli_python).exists() else sys.executable
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
+        [target_py, "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
         check=True,
     )
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-e", ".[clip,vertex,npr]"],
+        [target_py, "-m", "pip", "install", "-e", ".[clip,vertex,npr]"],
         cwd=str(REPO_ROOT),
         check=True,
     )
+    try:
+        import openai
+        from google.auth.transport.requests import Request
+        from google.oauth2 import service_account
+    except ImportError:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "openai",
+                "google-auth",
+                "requests",
+            ],
+            check=True,
+        )
 """
 
 INSTALL_VERTEX_ALL_VAL_CODE = """
@@ -406,29 +455,75 @@ if not cli_python or "3.10" not in cli_py_version:
 
 print("CLI Python 3.10 target:", cli_python)
 
-# 2. Install aiforensics with [vertex] extra into the Python 3.10 environment
-subprocess.run(
-    [cli_python, "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
-    check=True,
-)
-subprocess.run(
-    [cli_python, "-m", "pip", "install", "-e", ".[vertex]"],
-    cwd=str(REPO_ROOT),
-    check=True,
-)
 
-# 3. Ensure the notebook kernel (Python 3.12) has openai and google dependencies for Section 8
-try:
-    import openai
-    from google.auth.transport.requests import Request
-    from google.oauth2 import service_account
-except ImportError:
+def cli_dependencies_ready(py_bin: str) -> bool:
+    \"\"\"Check if aiforensics and vertex dependencies are already installed in Python 3.10.\"\"\"
+    check_code = (
+        "import importlib.util;"
+        "assert importlib.util.find_spec('aiforensics') is not None;"
+        "import openai, requests, google.auth;"
+        "print('READY')"
+    )
+    try:
+        proc = subprocess.run(
+            [py_bin, "-c", check_code],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return proc.returncode == 0 and "READY" in proc.stdout
+    except Exception:
+        return False
+
+
+# 2. Install aiforensics with [vertex] extra into Python 3.10 (skip if ready)
+if cli_dependencies_ready(cli_python):
+    print(f"aiforensics already installed in {cli_python}; skipping pip install.")
+else:
+    print("Installing aiforensics + [vertex] into Python 3.10 environment...")
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet", "openai", "google-auth", "requests"],
+        [cli_python, "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
         check=True,
     )
+    subprocess.run(
+        [cli_python, "-m", "pip", "install", "-e", ".[vertex]"],
+        cwd=str(REPO_ROOT),
+        check=True,
+    )
+    print("aiforensics CLI installed successfully into Python 3.10!")
 
-print("aiforensics CLI and Vertex dependencies installed successfully!")
+
+# 3. Ensure the notebook kernel (Python 3.12) has openai and google dependencies for Section 8
+def kernel_dependencies_ready() -> bool:
+    try:
+        importlib.import_module("google.auth")
+        importlib.import_module("google.auth.transport.requests")
+        importlib.import_module("google.oauth2.service_account")
+        importlib.import_module("openai")
+        importlib.import_module("requests")
+        return True
+    except ImportError:
+        return False
+
+
+if kernel_dependencies_ready():
+    print("Notebook kernel dependencies already imported; skipping pip install.")
+else:
+    print("Installing openai, google-auth, requests into notebook kernel...")
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "openai",
+            "google-auth",
+            "requests",
+        ],
+        check=True,
+    )
+    print("Notebook kernel dependencies installed successfully!")
 """
 
 INSTALL_ENV_CODE = """
