@@ -120,6 +120,23 @@ the same public CLI, using the OpenAI-compatible endpoint with Kaggle Secrets
 based authentication.
 """
 
+TITLE_KAGGLE_VERTEX_QWEN_ALL_VAL = """
+# Qwen-VL All-Val Evaluation on Kaggle (via Vertex AI)
+
+This notebook is a **thin wrapper** around the `aiforensics` CLI to evaluate the
+`qwen_vl` baseline via a Google Cloud Vertex AI Dedicated Endpoint across **all**
+generators found under `DATA_ROOT` using **only** the dataset `val` split.
+
+It does **not** train any model, and does **not** run CLIP, NPR, or Assisted Qwen.
+
+Key features:
+- Reads credentials securely from the Kaggle Secret `GOOGLE_APPLICATION_CREDENTIALS`.
+- Uses Dedicated Endpoint domain `*.prediction.vertexai.goog`.
+- Discovers all generator directories under `<DATA_ROOT>/<generator>/val/{ai,nature}/*`.
+- Configurable `MAX_IMAGES_PER_GENERATOR = 0` (0 evaluates all available val images).
+- Writes inspectable artifacts, metrics, and report under `/kaggle/working/outputs-qwen-all-val/`.
+"""
+
 PREFLIGHT_MD = """
 ## 1. Runtime preflight
 
@@ -337,12 +354,71 @@ python -m pip install -e ".[clip,qwen,npr]"
 """
 
 INSTALL_VERTEX_CODE = """
-%%bash
-set -euo pipefail
+import importlib
+import shutil
+import subprocess
+import sys
 
-cd "$AIF_REPO_ROOT"
-python -m pip install --quiet --upgrade pip
-python -m pip install -e ".[clip,vertex,npr]"
+
+def vertex_dependencies_ready() -> bool:
+    try:
+        importlib.import_module("kaggle_secrets")
+        importlib.import_module("requests")
+        from google.auth.transport.requests import Request
+        from google.oauth2 import service_account
+        from openai import OpenAI
+    except ImportError:
+        return False
+    _ = (OpenAI, Request, service_account)
+    return shutil.which("aiforensics") is not None
+
+
+if vertex_dependencies_ready():
+    print("Vertex dependencies already import; skipping pip install")
+else:
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
+        check=True,
+    )
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-e", ".[clip,vertex,npr]"],
+        cwd=str(REPO_ROOT),
+        check=True,
+    )
+"""
+
+INSTALL_VERTEX_ALL_VAL_CODE = """
+import importlib
+import shutil
+import subprocess
+import sys
+
+
+def vertex_dependencies_ready() -> bool:
+    try:
+        importlib.import_module("kaggle_secrets")
+        importlib.import_module("requests")
+        from google.auth.transport.requests import Request
+        from google.oauth2 import service_account
+        from openai import OpenAI
+    except ImportError:
+        return False
+    _ = (OpenAI, Request, service_account)
+    return shutil.which("aiforensics") is not None
+
+
+if vertex_dependencies_ready():
+    print("Vertex dependencies already import; skipping pip install")
+else:
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
+        check=True,
+    )
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-e", ".[vertex]"],
+        cwd=str(REPO_ROOT),
+        check=True,
+    )
 """
 
 INSTALL_ENV_CODE = """
@@ -534,6 +610,43 @@ print("cache root   : (writable)", CACHE_ROOT)
 print("output root  : (writable)", OUTPUT_ROOT)
 print("external root: (writable)", EXTERNAL_ROOT)
 print("build manifests:", BUILD_MANIFESTS)
+"""
+
+STORAGE_CODE_KAGGLE_VERTEX = STORAGE_CODE_KAGGLE.replace(
+    'INPUT_CHECKPOINT_DIR = KAGGLE_INPUT_ROOT / "<your-npr-checkpoint-dataset>"',
+    'INPUT_CHECKPOINT_DIR = KAGGLE_WORKING_ROOT / "npr-checkpoint"',
+)
+
+NPR_CHECKPOINT_MD = """
+### 5b. NPR checkpoint
+
+The Vertex quick notebook can fetch the official NPR checkpoint into writable
+Kaggle storage. Re-running this cell is safe: if `NPR.pth` already exists and is
+non-empty, the download is skipped.
+"""
+
+NPR_CHECKPOINT_CODE = """
+NPR_CHECKPOINT_URL = (
+    "https://raw.githubusercontent.com/chuangchuangtan/"
+    "NPR-DeepfakeDetection/main/NPR.pth"
+)
+
+NPR_CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+if NPR_CHECKPOINT_PATH.exists() and NPR_CHECKPOINT_PATH.stat().st_size > 0:
+    print("NPR checkpoint already exists; skipping download")
+else:
+    subprocess.run(
+        ["wget", "-O", str(NPR_CHECKPOINT_PATH), NPR_CHECKPOINT_URL],
+        check=True,
+    )
+
+print(
+    "NPR checkpoint:",
+    NPR_CHECKPOINT_PATH,
+    NPR_CHECKPOINT_PATH.exists(),
+    "bytes:",
+    NPR_CHECKPOINT_PATH.stat().st_size if NPR_CHECKPOINT_PATH.exists() else 0,
+)
 """
 
 CONFIG_MD = """
@@ -892,6 +1005,187 @@ Endpoint. The final report therefore includes Qwen Vertex metrics whenever the
 endpoint and credentials are available.
 """
 
+STORAGE_MD_KAGGLE_ALL_VAL = """
+## 5. Storage inputs
+
+Kaggle separates **read-only** attached data from **writable** working storage:
+
+- `/kaggle/input/<your-dataset>` is read-only. Research images live here.
+- `/kaggle/working` is writable but ephemeral; save notebook output to keep artifacts.
+
+This notebook evaluates Qwen-VL via Vertex AI across all generators in the dataset
+`val` split only (`<DATA_ROOT>/<generator>/val/{ai,nature}/*`).
+"""
+
+STORAGE_CODE_KAGGLE_ALL_VAL = """
+# User-editable: Kaggle mount points.
+KAGGLE_INPUT_ROOT = Path("/kaggle/input")  # read-only attached datasets
+KAGGLE_WORKING_ROOT = Path("/kaggle/working")  # writable, ephemeral
+
+# Full path to the attached dataset directory that holds the images.
+# Expected GenImage layout: <DATA_ROOT>/<generator>/val/{ai,nature}/*
+INPUT_DATA_DIR = KAGGLE_INPUT_ROOT / "datasets/yangsangtai/tiny-genimage"
+
+# Maximum number of images per generator to evaluate.
+# 0 means full val (all available val images for each generator).
+# Set to a small integer (e.g. 10 or 50) for fast smoke/sanity checks.
+MAX_IMAGES_PER_GENERATOR = 0
+
+# Set True to build manifests from the val split of all generators in INPUT_DATA_DIR;
+# set False when manifest CSV is already provisioned.
+BUILD_MANIFESTS = True
+INPUT_MANIFEST_DIR = KAGGLE_INPUT_ROOT / "<your-manifests-dataset>"
+
+# Read-only inputs.
+DATA_ROOT = INPUT_DATA_DIR
+
+# Writable outputs: never place these under /kaggle/input.
+CACHE_ROOT = KAGGLE_WORKING_ROOT / "cache"
+OUTPUT_ROOT = Path("/kaggle/working/outputs-qwen-all-val")
+EXTERNAL_ROOT = KAGGLE_WORKING_ROOT / "external"
+
+# Built manifests must land in writable storage; provisioned ones stay read-only.
+MANIFEST_ROOT = KAGGLE_WORKING_ROOT / "manifests" if BUILD_MANIFESTS else INPUT_MANIFEST_DIR
+
+# Dedicated manifest for all-val evaluation
+GENIMAGE_ALL_VAL_MANIFEST = MANIFEST_ROOT / "genimage_all_val.csv"
+
+writable_roots = [CACHE_ROOT, OUTPUT_ROOT, EXTERNAL_ROOT]
+if BUILD_MANIFESTS:
+    writable_roots.append(MANIFEST_ROOT)
+for writable in writable_roots:
+    writable.mkdir(parents=True, exist_ok=True)
+
+if not BUILD_MANIFESTS and MANIFEST_ROOT.is_relative_to(KAGGLE_INPUT_ROOT):
+    print("manifest root is read-only; manifests must already exist there")
+
+print("data root    : (read-only)", DATA_ROOT)
+print("manifest root:", "(writable)" if BUILD_MANIFESTS else "(read-only)", MANIFEST_ROOT)
+print("cache root   : (writable)", CACHE_ROOT)
+print("output root  : (writable)", OUTPUT_ROOT)
+print("external root: (writable)", EXTERNAL_ROOT)
+print("max images/generator:", MAX_IMAGES_PER_GENERATOR, "(0 = full val)")
+print("build manifests:", BUILD_MANIFESTS)
+"""
+
+CONFIG_MD_ALL_VAL = """
+## 6. Generate the runtime config
+
+`configs/qwen_vertex_all_val.yaml` is treated as a **read-only template**. This cell copies
+it, discovers all generators with a `val` split under `DATA_ROOT`, and rewrites path and
+generator values under `.cache/aiforensics-notebook/` inside the repository.
+"""
+
+VERTEX_CONFIG_ALL_VAL_CODE_TEMPLATE = """
+import yaml
+
+TEMPLATE_CONFIG = REPO_ROOT / "configs/qwen_vertex_all_val.yaml"
+GENERATED_CONFIG = REPO_ROOT / ".cache/aiforensics-notebook/qwen_vertex_all_val_{platform}.yaml"
+
+with open(TEMPLATE_CONFIG, encoding="utf-8") as handle:
+    cfg = yaml.safe_load(handle)
+
+# Relocate paths to runtime storage
+cfg["paths"]["data_root"] = str(DATA_ROOT)
+cfg["paths"]["manifest_root"] = str(MANIFEST_ROOT)
+cfg["paths"]["cache_root"] = str(CACHE_ROOT)
+cfg["paths"]["output_root"] = str(OUTPUT_ROOT)
+cfg["paths"]["external_root"] = str(EXTERNAL_ROOT)
+
+
+def discover_generator_dirs(data_root: Path) -> list[str]:
+    \"\"\"Discover all generator directories that have a val split.\"\"\"
+    if not data_root.is_dir():
+        return []
+    found = []
+    for entry in sorted(data_root.iterdir()):
+        if entry.is_dir() and (entry / "val").is_dir():
+            found.append(entry.name)
+    return found
+
+
+all_val_generators = discover_generator_dirs(DATA_ROOT)
+
+cfg["datasets"]["genimage_unseen"]["generators"] = all_val_generators
+cfg["datasets"]["genimage_unseen"]["manifest"] = str(GENIMAGE_ALL_VAL_MANIFEST)
+cfg["datasets"]["genimage_unseen"]["source_split"] = "val"
+cfg["datasets"]["genimage_unseen"]["max_images"] = int(MAX_IMAGES_PER_GENERATOR)
+
+cfg["baselines"]["qwen_vl"]["provider"] = "vertex_openai"
+cfg["report"]["filename"] = "qwen_vertex_all_val_report.md"
+
+GENERATED_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+with open(GENERATED_CONFIG, "w", encoding="utf-8") as handle:
+    yaml.safe_dump(cfg, handle, sort_keys=False)
+
+os.environ["AIF_CONFIG"] = str(GENERATED_CONFIG)
+print("runtime config:", GENERATED_CONFIG)
+print("report filename:", cfg["report"]["filename"])
+print("generators (val only):", all_val_generators)
+print("max images per generator:", MAX_IMAGES_PER_GENERATOR)
+"""
+
+VALIDATE_MD_ALL_VAL = """
+## 7. Validate provisioned inputs
+
+This cell checks the runtime paths and lists all discovered generator directories
+with a `val` split.
+"""
+
+VALIDATE_CODE_ALL_VAL = """
+print("runtime config :", GENERATED_CONFIG, "exists:", GENERATED_CONFIG.is_file())
+print("data root      :", DATA_ROOT, "exists:", DATA_ROOT.is_dir())
+print("manifest root  :", MANIFEST_ROOT, "exists:", MANIFEST_ROOT.is_dir())
+print("cache root     :", CACHE_ROOT, "exists:", CACHE_ROOT.is_dir())
+print("output root    :", OUTPUT_ROOT, "exists:", OUTPUT_ROOT.is_dir())
+
+found_val_generators = []
+if DATA_ROOT.is_dir():
+    for entry in sorted(p for p in DATA_ROOT.iterdir() if p.is_dir()):
+        if (entry / "val").is_dir():
+            found_val_generators.append(entry.name)
+
+print("\\ngenerator directories with val/ under data root:", len(found_val_generators))
+for name in found_val_generators:
+    print("  -", name)
+if not found_val_generators and BUILD_MANIFESTS:
+    print(
+        "  none found: check DATA_ROOT. Expected "
+        "<DATA_ROOT>/<generator>/val/<ai|nature>/"
+    )
+
+print(
+    "\\nall-val manifest target:",
+    GENIMAGE_ALL_VAL_MANIFEST,
+    "exists:",
+    GENIMAGE_ALL_VAL_MANIFEST.is_file(),
+)
+if BUILD_MANIFESTS:
+    print("  (BUILD_MANIFESTS is true: prepare --build-manifests will create/overwrite this)")
+"""
+
+VERTEX_ALL_VAL_RUN_MD = """
+## 10. Run Qwen-VL across all generators (val split)
+
+These cells execute the pipeline for `qwen_vl` only. Neither CLIP, NPR, nor Assisted Qwen
+are executed.
+
+1. `prepare` reads the GenImage layout under `DATA_ROOT`, filters solely the `val` split,
+   and writes `genimage_all_val.csv`.
+2. `run --baseline qwen_vl` classifies each image in parallel through the Vertex AI Dedicated
+   Endpoint.
+3. `evaluate` computes classification metrics (accuracy, AUROC, log-loss, etc.) by generator.
+4. `report` renders `qwen_vertex_all_val_report.md`.
+"""
+
+VERTEX_ALL_VAL_CLI_CELLS = [
+    'aiforensics prepare ${AIF_PREPARE_ARGS} --config "$AIF_CONFIG"',
+    'aiforensics run --baseline qwen_vl --config "$AIF_CONFIG"',
+    'aiforensics evaluate --config "$AIF_CONFIG"',
+    'aiforensics report --config "$AIF_CONFIG"',
+]
+
+
 ARTIFACT_MD = """
 ## 9. Artifacts
 
@@ -1047,7 +1341,9 @@ def build_kaggle_vertex_qwen() -> dict:
         md(VERIFY_CLI_MD),
         code(VERIFY_CLI_CODE),
         md(STORAGE_MD_KAGGLE),
-        code(STORAGE_CODE_KAGGLE),
+        code(STORAGE_CODE_KAGGLE_VERTEX),
+        md(NPR_CHECKPOINT_MD),
+        code(NPR_CHECKPOINT_CODE),
         md(CONFIG_MD),
         code(VERTEX_CONFIG_CODE_TEMPLATE.format(platform="kaggle_vertex_qwen")),
         md(VALIDATE_MD),
@@ -1065,6 +1361,46 @@ def build_kaggle_vertex_qwen() -> dict:
     return notebook(cells)
 
 
+def build_kaggle_vertex_qwen_all_val() -> dict:
+    cells: list[dict] = [
+        md(TITLE_KAGGLE_VERTEX_QWEN_ALL_VAL),
+        md(PREFLIGHT_MD),
+        code(
+            PREFLIGHT_CODE.replace(
+                'CLI_VENV_PATH = Path("/content/aiforensics-venv310")',
+                'CLI_VENV_PATH = Path("/kaggle/working/aiforensics-venv310")',
+            )
+        ),
+        md(PROVISION_MD),
+        code(PROVISION_CODE),
+        md(VERIFY_PY_MD),
+        code(VERIFY_PY_CODE),
+        md(REPO_MD_KAGGLE),
+        code(REPO_CODE_TEMPLATE.format(repo_root="/kaggle/working/ai-image-forensics")),
+        md(INSTALL_MD),
+        code(INSTALL_ENV_CODE),
+        code(INSTALL_VERTEX_ALL_VAL_CODE),
+        md(VERIFY_CLI_MD),
+        code(VERIFY_CLI_CODE),
+        md(STORAGE_MD_KAGGLE_ALL_VAL),
+        code(STORAGE_CODE_KAGGLE_ALL_VAL),
+        md(CONFIG_MD_ALL_VAL),
+        code(VERTEX_CONFIG_ALL_VAL_CODE_TEMPLATE.format(platform="kaggle")),
+        md(VALIDATE_MD_ALL_VAL),
+        code(VALIDATE_CODE_ALL_VAL),
+        md(VERTEX_AUTH_MD),
+        code(VERTEX_AUTH_CODE),
+        md(VERTEX_QWEN_MD),
+        code(VERTEX_QWEN_CODE),
+        md(VERTEX_ALL_VAL_RUN_MD),
+        code(PREPARE_ENV_CODE),
+        *[full_run_cell(command) for command in VERTEX_ALL_VAL_CLI_CELLS],
+        md(ARTIFACT_MD),
+        code(ARTIFACT_CODE),
+    ]
+    return notebook(cells)
+
+
 def main() -> None:
     NOTEBOOK_DIR.mkdir(parents=True, exist_ok=True)
     for platform in ("colab", "kaggle"):
@@ -1076,6 +1412,11 @@ def main() -> None:
         json.dumps(build_kaggle_vertex_qwen(), indent=1) + "\n", encoding="utf-8"
     )
     print("wrote", vertex_path)
+    vertex_all_val_path = NOTEBOOK_DIR / "kaggle_vertex_qwen_all_val.ipynb"
+    vertex_all_val_path.write_text(
+        json.dumps(build_kaggle_vertex_qwen_all_val(), indent=1) + "\n", encoding="utf-8"
+    )
+    print("wrote", vertex_all_val_path)
 
 
 if __name__ == "__main__":
