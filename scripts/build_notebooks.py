@@ -111,12 +111,13 @@ See `docs/runbook-colab-kaggle.md` for the operator runbook.
 TITLE_KAGGLE_VERTEX_QWEN = """
 # Phase A/B on Kaggle with Vertex Qwen
 
-This notebook is a notebook-first path for validating
+This notebook is the quick end-to-end path for validating
 `Qwen/Qwen2.5-VL-7B-Instruct` through a Google Cloud Vertex AI Dedicated
-Endpoint before that runtime is wired into the `aiforensics` CLI.
+Endpoint and including that result in the normal `aiforensics` report.
 
 CLIP and NPR stay on the existing public CLI path. Qwen is called here through
-the OpenAI-compatible endpoint with Kaggle Secrets based authentication.
+the same public CLI, using the OpenAI-compatible endpoint with Kaggle Secrets
+based authentication.
 """
 
 PREFLIGHT_MD = """
@@ -341,8 +342,7 @@ set -euo pipefail
 
 cd "$AIF_REPO_ROOT"
 python -m pip install --quiet --upgrade pip
-python -m pip install -e ".[clip,npr]"
-python -m pip install --quiet openai google-auth
+python -m pip install -e ".[clip,vertex,npr]"
 """
 
 INSTALL_ENV_CODE = """
@@ -704,7 +704,9 @@ FULL_RUN_CELLS = [
 VERTEX_CLI_CELLS = [
     'aiforensics prepare ${AIF_PREPARE_ARGS} --config "$AIF_CONFIG"',
     'aiforensics run --baseline clip_probe --config "$AIF_CONFIG"',
+    'aiforensics run --baseline qwen_vl --config "$AIF_CONFIG"',
     'aiforensics run --baseline npr --config "$AIF_CONFIG"',
+    'aiforensics run --baseline assisted_qwen --config "$AIF_CONFIG"',
     'aiforensics evaluate --config "$AIF_CONFIG"',
     'aiforensics report --config "$AIF_CONFIG"',
 ]
@@ -768,6 +770,7 @@ if BASE_URL != EXPECTED_BASE_URL:
 
 user_secrets = UserSecretsClient()
 service_account_json = user_secrets.get_secret("GOOGLE_APPLICATION_CREDENTIALS")
+os.environ["AIF_GOOGLE_APPLICATION_CREDENTIALS_JSON"] = service_account_json
 service_account_info = json.loads(service_account_json)
 credentials = service_account.Credentials.from_service_account_info(
     service_account_info,
@@ -785,13 +788,50 @@ print("vertex model id:", VERTEX_MODEL_ID)
 print("vertex credentials: loaded and refreshed")
 """
 
+VERTEX_CONFIG_CODE_TEMPLATE = """
+import yaml
+
+TEMPLATE_CONFIG = REPO_ROOT / "configs/phase_ab_vertex_quick.yaml"
+GENERATED_CONFIG = REPO_ROOT / ".cache/aiforensics-notebook/phase_ab_{platform}.yaml"
+
+with open(TEMPLATE_CONFIG, encoding="utf-8") as handle:
+    cfg = yaml.safe_load(handle)
+
+# Only environment/path values change; quick scientific limits stay in the
+# dedicated quick config so this notebook can prove the pipeline cheaply.
+cfg["paths"]["data_root"] = str(DATA_ROOT)
+cfg["paths"]["manifest_root"] = str(MANIFEST_ROOT)
+cfg["paths"]["cache_root"] = str(CACHE_ROOT)
+cfg["paths"]["output_root"] = str(OUTPUT_ROOT)
+cfg["paths"]["external_root"] = str(EXTERNAL_ROOT)
+
+cfg["datasets"]["tiny_genimage"]["train_manifest"] = str(TINY_TRAIN_MANIFEST)
+cfg["datasets"]["tiny_genimage"]["dev_manifest"] = str(TINY_DEV_MANIFEST)
+cfg["datasets"]["genimage_unseen"]["manifest"] = str(GENIMAGE_UNSEEN_MANIFEST)
+cfg["datasets"]["synthbuster"]["manifest"] = str(SYNTHBUSTER_MANIFEST)
+
+cfg["baselines"]["npr"]["checkpoint_path"] = str(NPR_CHECKPOINT_PATH)
+
+cfg["baselines"]["qwen_vl"]["provider"] = "vertex_openai"
+cfg["baselines"]["assisted_qwen"]["provider"] = "vertex_openai"
+cfg["report"]["filename"] = "phase_ab_vertex_quick_report.md"
+
+GENERATED_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+with open(GENERATED_CONFIG, "w", encoding="utf-8") as handle:
+    yaml.safe_dump(cfg, handle, sort_keys=False)
+
+os.environ["AIF_CONFIG"] = str(GENERATED_CONFIG)
+print("runtime config:", GENERATED_CONFIG)
+print("report filename:", cfg["report"]["filename"])
+"""
+
 VERTEX_QWEN_MD = """
 ## 9. Call Qwen through Vertex
 
-This is an endpoint smoke call, not the final CLI integration. It sends one
-image to the Dedicated Endpoint using the OpenAI-compatible chat-completions
-path. After this is proven on Kaggle, the same request builder can move behind
-the `qwen_vl` and `assisted_qwen` adapters.
+This is a one-image endpoint preflight before the full CLI run. The real
+evaluation still happens through `aiforensics run --baseline qwen_vl` and
+`aiforensics run --baseline assisted_qwen`, which write `predictions.jsonl` for
+`evaluate` and `report`.
 """
 
 VERTEX_QWEN_CODE = """
@@ -844,11 +884,12 @@ print(response.choices[0].message.content)
 """
 
 VERTEX_RUN_MD = """
-## 10. Existing CLI path for CLIP and NPR
+## 10. Quick Phase A/B run with Vertex Qwen
 
-Until the Vertex request builder is moved into `src/aiforensics`, this notebook
-keeps Qwen out of the CLI run cells. CLIP and NPR still use the public CLI, and
-the final `evaluate`/`report` cells summarize whatever in-scope artifacts exist.
+This quick run uses `configs/phase_ab_vertex_quick.yaml`: CLIP trains one seed,
+the image caps are small, and both Qwen baselines call the Dedicated Vertex AI
+Endpoint. The final report therefore includes Qwen Vertex metrics whenever the
+endpoint and credentials are available.
 """
 
 ARTIFACT_MD = """
@@ -1008,7 +1049,7 @@ def build_kaggle_vertex_qwen() -> dict:
         md(STORAGE_MD_KAGGLE),
         code(STORAGE_CODE_KAGGLE),
         md(CONFIG_MD),
-        code(CONFIG_CODE_TEMPLATE.format(platform="kaggle_vertex_qwen")),
+        code(VERTEX_CONFIG_CODE_TEMPLATE.format(platform="kaggle_vertex_qwen")),
         md(VALIDATE_MD),
         code(VALIDATE_CODE),
         md(VERTEX_AUTH_MD),

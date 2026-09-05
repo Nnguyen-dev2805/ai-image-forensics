@@ -275,6 +275,25 @@ Other Kaggle specifics:
   clone all need the notebook **Internet** setting enabled. With Internet off,
   use a pre-provisioned environment and attach models/checkpoints as datasets.
 
+### Kaggle with Vertex Qwen
+
+Use `notebooks/kaggle_vertex_qwen_phase_ab.ipynb` when Qwen should run through
+the Google Cloud Vertex AI Dedicated Endpoint instead of loading the local
+Transformers model. The notebook generates its runtime config from
+`configs/phase_ab_vertex_quick.yaml`, which is intentionally small for a first
+end-to-end check:
+
+- CLIP trains one seed: `70`.
+- Tiny-GenImage is capped at `40` images per configured generator per split.
+- GenImage unseen is capped at `10` images per configured generator.
+- The report filename is `phase_ab_vertex_quick_report.md`.
+
+The Kaggle Secret named `GOOGLE_APPLICATION_CREDENTIALS` must contain the
+service-account JSON. The notebook reads that secret, keeps it out of output,
+and exports it only to `AIF_GOOGLE_APPLICATION_CREDENTIALS_JSON` for the CLI
+process. Both Qwen baselines then write normal `predictions.jsonl` artifacts, so
+`aiforensics evaluate` and `aiforensics report` include Qwen Vertex metrics.
+
 ## NPR Checkpoint and External Repository
 
 NPR stays an external pinned baseline:

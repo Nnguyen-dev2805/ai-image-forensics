@@ -30,6 +30,10 @@ qwen = [
     "accelerate",
     "qwen-vl-utils",
 ]
+vertex = [
+    "openai",
+    "google-auth",
+]
 npr = [
     # Only what the pinned NPR runtime bridge imports: networks/resnet.py needs
     # torch + numpy; preprocessing uses Pillow + numpy. scipy, OpenCV, and

@@ -110,15 +110,18 @@ class AssistedQwenAdapter(BaselineAdapter):
             assistant_inputs = self._discover_assistant_inputs(config)
 
             # We determine device upfront for logging
-            device = "unknown"
-            try:
-                device = get_qwen_device(
-                    config.runtime.device, cfg.allow_deferred, BaselineDeferredError
-                )
-            except BaselineDeferredError:
-                device = "deferred"
-            except Exception:
-                device = "failed"
+            if cfg.provider == "vertex_openai":
+                device = "vertex_openai"
+            else:
+                device = "unknown"
+                try:
+                    device = get_qwen_device(
+                        config.runtime.device, cfg.allow_deferred, BaselineDeferredError
+                    )
+                except BaselineDeferredError:
+                    device = "deferred"
+                except Exception:
+                    device = "failed"
 
             predictions = self._run_inference(
                 records, assistant_inputs, config, run_id, self._counts
@@ -149,6 +152,7 @@ class AssistedQwenAdapter(BaselineAdapter):
                 f.write(f"Run completed successfully for baseline {self.name}\n")
                 f.write(f"Processed {len(records)} records.\n")
                 f.write(f"Model ID: {cfg.base_model_id}\n")
+                f.write(f"Provider: {cfg.provider}\n")
                 f.write(f"Prompt ID: {cfg.prompt_id}\n")
                 f.write(f"Compute dtype: {cfg.dtype}\n")
                 f.write(f"Resolved device: {device}\n")
@@ -252,6 +256,32 @@ class AssistedQwenAdapter(BaselineAdapter):
         for message in selection.warnings:
             logger.warning("%s", message)
         return list(selection.records)
+
+    def _create_vertex_client(self, cfg):
+        from aiforensics.baselines.qwen_vl.vertex_openai import create_vertex_openai_client
+
+        return create_vertex_openai_client(
+            project_id=cfg.vertex_project_id,
+            location=cfg.vertex_location,
+            endpoint_id=cfg.vertex_endpoint_id,
+            endpoint_domain=cfg.vertex_endpoint_domain,
+            credentials_env_var=cfg.vertex_credentials_env_var,
+        )
+
+    def _generate_one_image_vertex(
+        self, client, image_path: Path, prompt_text: str, max_new_tokens: int, temperature: float
+    ) -> str:
+        from aiforensics.baselines.qwen_vl.vertex_openai import generate_one_image_via_vertex
+
+        cfg = self._active_assisted_cfg
+        return generate_one_image_via_vertex(
+            client=client,
+            model_id=cfg.vertex_model_id,
+            image_path=image_path,
+            prompt_text=prompt_text,
+            max_tokens=max_new_tokens,
+            temperature=temperature,
+        )
 
     def _discover_assistant_inputs(self, config: AppConfig) -> dict[str, AssistedInput]:
         expected_scope = compute_run_scope(config)
@@ -379,6 +409,7 @@ class AssistedQwenAdapter(BaselineAdapter):
         counts: dict,
     ) -> list[PredictionRecord]:
         cfg = config.baselines.assisted_qwen
+        self._active_assisted_cfg = cfg
 
         cache_enabled = cfg.cache_outputs
         cache_dir = config.paths.cache_root / "assisted_qwen" / "raw_outputs"
@@ -420,21 +451,29 @@ class AssistedQwenAdapter(BaselineAdapter):
                 checksum = hashlib.sha256(record.path.read_bytes()).hexdigest()
 
             def _get_cache_key(c_sum=checksum, a_in=assist_in) -> str:
-                return cache_key(
-                    {
-                        "baseline": "assisted_qwen",
-                        "sample_checksum": c_sum,
-                        "base_model_id": cfg.base_model_id,
-                        "prompt_id": cfg.prompt_id,
-                        "assistant_source": cfg.assistant_source,
-                        "classifier_pred": a_in.classifier_pred,
-                        "fake_probability": format(a_in.fake_probability, ".12g"),
-                        "dtype": cfg.dtype,
-                        "temperature": str(cfg.temperature),
-                        "max_new_tokens": str(cfg.max_new_tokens),
-                        "output_cache_version": "assisted_qwen_raw_v2",
-                    }
-                )
+                parts = {
+                    "baseline": "assisted_qwen",
+                    "sample_checksum": c_sum,
+                    "base_model_id": cfg.base_model_id,
+                    "prompt_id": cfg.prompt_id,
+                    "assistant_source": cfg.assistant_source,
+                    "classifier_pred": a_in.classifier_pred,
+                    "fake_probability": format(a_in.fake_probability, ".12g"),
+                    "dtype": cfg.dtype,
+                    "temperature": str(cfg.temperature),
+                    "max_new_tokens": str(cfg.max_new_tokens),
+                    "output_cache_version": "assisted_qwen_raw_v2",
+                }
+                if cfg.provider == "vertex_openai":
+                    parts.update(
+                        {
+                            "provider": cfg.provider,
+                            "vertex_endpoint_domain": cfg.vertex_endpoint_domain or "",
+                            "vertex_endpoint_id": cfg.vertex_endpoint_id or "",
+                            "vertex_model_id": cfg.vertex_model_id or "",
+                        }
+                    )
+                return cache_key(parts)
 
             raw_output = None
             cache_path = None
@@ -447,7 +486,17 @@ class AssistedQwenAdapter(BaselineAdapter):
                 counts["cache_misses"] += 1
 
             if raw_output is None:
-                if model is None:
+                if cfg.provider == "vertex_openai":
+                    if model is None:
+                        model = self._create_vertex_client(cfg)
+                    raw_output = self._generate_one_image_vertex(
+                        model,
+                        record.path,
+                        prompt_text,
+                        cfg.max_new_tokens,
+                        cfg.temperature,
+                    )
+                elif model is None:
                     try:
                         import importlib.util
 
@@ -473,9 +522,13 @@ class AssistedQwenAdapter(BaselineAdapter):
                         dtype=cfg.dtype,
                     )
 
-                raw_output = generate_one_image(
-                    model, processor, record.path, prompt_text, device, cfg.max_new_tokens
-                )
+                    raw_output = generate_one_image(
+                        model, processor, record.path, prompt_text, device, cfg.max_new_tokens
+                    )
+                else:
+                    raw_output = generate_one_image(
+                        model, processor, record.path, prompt_text, device, cfg.max_new_tokens
+                    )
 
                 if cache_enabled and cache_path is not None:
                     write_qwen_cache(cache_path, record.sample_id, raw_output)

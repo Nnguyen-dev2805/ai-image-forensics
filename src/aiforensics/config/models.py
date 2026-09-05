@@ -82,6 +82,7 @@ class ClipProbeConfig(BaseModel):
 class QwenVLConfig(BaseModel):
     enabled: bool
     model_id: str
+    provider: Literal["local", "vertex_openai"] = "local"
     prompt_id: str
     temperature: float = Field(ge=0.0)
     max_new_tokens: int = Field(gt=0)
@@ -90,11 +91,18 @@ class QwenVLConfig(BaseModel):
     # Compute dtype changes numerical results, so it is configured and recorded
     # (cache keys, reports) instead of hidden in the runtime.
     dtype: Literal["bfloat16", "float16", "float32"] = "bfloat16"
+    vertex_project_id: str | None = None
+    vertex_location: str | None = None
+    vertex_endpoint_id: str | None = None
+    vertex_endpoint_domain: str | None = None
+    vertex_model_id: str | None = None
+    vertex_credentials_env_var: str = "AIF_GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
 
 class AssistedQwenConfig(BaseModel):
     enabled: bool
     base_model_id: str
+    provider: Literal["local", "vertex_openai"] = "local"
     prompt_id: str
     assistant_source: str
     include_classifier_pred: bool
@@ -104,6 +112,12 @@ class AssistedQwenConfig(BaseModel):
     cache_outputs: bool
     allow_deferred: bool = True
     dtype: Literal["bfloat16", "float16", "float32"] = "bfloat16"
+    vertex_project_id: str | None = None
+    vertex_location: str | None = None
+    vertex_endpoint_id: str | None = None
+    vertex_endpoint_domain: str | None = None
+    vertex_model_id: str | None = None
+    vertex_credentials_env_var: str = "AIF_GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
 
 class NPRConfig(BaseModel):
