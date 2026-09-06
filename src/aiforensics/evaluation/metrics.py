@@ -29,13 +29,40 @@ METRIC_NAMES: tuple[str, ...] = (
 )
 
 
+def _confusion_counts(
+    records: Sequence[PredictionRecord],
+) -> tuple[int, int, int, int]:
+    """Return (tn, fp, fn, tp) with fake as the positive class.
+
+    TP = true fake, pred fake; FP = true real, pred fake;
+    TN = true real, pred real; FN = true fake, pred != fake (unknown counts
+    as a miss for the fake class).
+    """
+    tn = fp = fn = tp = 0
+    for r in records:
+        if r.label_true == "fake" and r.label_pred == "fake":
+            tp += 1
+        elif r.label_true == "real" and r.label_pred == "fake":
+            fp += 1
+        elif r.label_true == "real" and r.label_pred == "real":
+            tn += 1
+        elif r.label_true == "fake" and r.label_pred != "fake":
+            fn += 1
+    return tn, fp, fn, tp
+
+
+def compute_confusion_matrix(records: Sequence[PredictionRecord]) -> dict[str, object]:
+    """Build the compact confusion-matrix artifact written beside metrics.json."""
+    tn, fp, fn, tp = _confusion_counts(records)
+    return {"labels": ["real", "fake"], "matrix": [[tn, fp], [fn, tp]]}
+
+
 def compute_classification_metrics(
     records: Sequence[PredictionRecord],
 ) -> dict[str, float | None]:
     if not records:
         return {k: None for k in METRIC_NAMES}
 
-    tp = fp = tn = fn = 0
     true_real_count = 0
     true_fake_count = 0
 
@@ -49,26 +76,12 @@ def compute_classification_metrics(
         elif r.label_true == "fake":
             true_fake_count += 1
 
-        # Calculate exact matches (confusion matrix elements)
-        # Note: unknown is always incorrect, so it doesn't add to TN/TP/FP/FN in a way that helps,
-        # but for precision/recall definitions in spec:
-        # TP = true fake, pred fake
-        # FP = true real, pred fake
-        # TN = true real, pred real
-        # FN = true fake, pred != fake
-        if r.label_true == "fake" and r.label_pred == "fake":
-            tp += 1
-        elif r.label_true == "real" and r.label_pred == "fake":
-            fp += 1
-        elif r.label_true == "real" and r.label_pred == "real":
-            tn += 1
-        elif r.label_true == "fake" and r.label_pred != "fake":
-            fn += 1
-
         # Collect score_fake for AUROC
         if r.score_fake is not None:
             scores.append(r.score_fake)
             y_true.append(1 if r.label_true == "fake" else 0)
+
+    tn, fp, fn, tp = _confusion_counts(records)
 
     # ACCURACY
     # Note: If label_true="real" and label_pred="unknown", they don't fall into the 4 buckets above.
@@ -166,6 +179,10 @@ def write_metrics_outputs(
         json.dump(out_json, f, indent=2)
 
     df_source.to_csv(csv_path, index=False)
+
+    confusion_path = out_dir / "confusion_matrix.json"
+    with open(confusion_path, "w", encoding="utf-8") as f:
+        json.dump(compute_confusion_matrix(records), f, indent=2)
 
     return json_path, csv_path
 

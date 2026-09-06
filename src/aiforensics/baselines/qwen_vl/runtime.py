@@ -120,6 +120,8 @@ def load_model(
     exception_cls: type[Exception],
     *,
     dtype: str = "bfloat16",
+    min_pixels: int | None = None,
+    max_pixels: int | None = None,
 ):
     """Load the Qwen model sharded across visible GPUs at the configured dtype.
 
@@ -164,7 +166,13 @@ def load_model(
         if placement:
             logger.info("Qwen weights placed on: %s", sorted({p for p in placement.values()}))
 
-        processor = AutoProcessor.from_pretrained(model_id)
+        processor_kwargs: dict[str, object] = {}
+        if min_pixels is not None:
+            processor_kwargs["min_pixels"] = min_pixels
+        if max_pixels is not None:
+            processor_kwargs["max_pixels"] = max_pixels
+
+        processor = AutoProcessor.from_pretrained(model_id, **processor_kwargs)
         return model, processor
     except Exception as e:
         if allow_deferred:

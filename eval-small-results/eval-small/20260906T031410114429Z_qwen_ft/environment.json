@@ -1,0 +1,22 @@
+{
+  "captured_at": "2026-09-06T03:14:10.146104+00:00",
+  "python_version": "3.10.13",
+  "python_executable": "/usr/local/bin/python3.10",
+  "platform": "Linux-4.19.0-gvisor-x86_64-with-glibc2.35",
+  "command": [
+    "/usr/local/bin/aiforensics",
+    "run",
+    "--baseline",
+    "qwen_ft",
+    "--config",
+    "configs/qwen_ft_protocol_a_small_modal.yaml"
+  ],
+  "packages": {
+    "numpy": "2.2.6",
+    "pandas": "2.3.3",
+    "pydantic": "2.13.5",
+    "PyYAML": "6.0.3",
+    "scikit-learn": "1.7.2",
+    "Pillow": "12.3.0"
+  }
+}

@@ -17,6 +17,7 @@ SUPPORTED_BASELINES: tuple[str, ...] = (
     "qwen_vl",
     "npr",
     "assisted_qwen",
+    "qwen_ft",
 )
 
 
@@ -100,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _cmd_prepare(args: argparse.Namespace) -> int:
     config = load_config(args.config)
 
-    if config.project.phase == "phase_ab_smoke":
+    if config.project.phase in ("phase_ab_smoke", "qwen_ft_smoke"):
         from aiforensics.data.manifest import prepare_smoke_manifest
 
         result = prepare_smoke_manifest(config)
@@ -383,6 +384,48 @@ def _cmd_run(args: argparse.Namespace) -> int:
             run_dir / "status.json",
             RunStatus(
                 baseline="npr",
+                status=final_status,
+                reason=final_reason,  # type: ignore
+                command=sys.argv,
+                started_at=started_at,
+                ended_at=ended_at,
+            ),
+        )
+
+        if final_status == "completed":
+            completed += 1
+        elif final_status == "failed":
+            failed += 1
+        elif final_status == "deferred":
+            deferred += 1
+
+    elif args.baseline == "qwen_ft":
+        from aiforensics.baselines.qwen_ft import QwenFTAdapter
+
+        adapter = QwenFTAdapter()
+        started_at = datetime.now(timezone.utc).isoformat()
+
+        run_dir = _setup_run_dir("qwen_ft", None)
+
+        try:
+            result = adapter.run(
+                config=config,
+                output_dir=run_dir,
+                run_id=run_dir.name,
+            )
+            final_status = result.status
+            final_reason = getattr(result, "reason", "")
+        except Exception as e:
+            with open(run_dir / "logs.txt", "a", encoding="utf-8") as f:
+                f.write(f"[FAILED] Unexpected error: {e}\n")
+            final_status = "failed"
+            final_reason = f"Adapter crashed: {e}"
+
+        ended_at = datetime.now(timezone.utc).isoformat()
+        write_status(
+            run_dir / "status.json",
+            RunStatus(
+                baseline="qwen_ft",
                 status=final_status,
                 reason=final_reason,  # type: ignore
                 command=sys.argv,

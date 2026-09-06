@@ -1,0 +1,13 @@
+{
+  "data_root": "/vol/data/protocol-a-small",
+  "datasets": {
+    "genimage_unseen": "enabled:/vol/data/protocol-a-small/manifests/eval_small.csv",
+    "synthbuster": "disabled",
+    "tiny_genimage": "disabled"
+  },
+  "phase": "qwen_ft_protocol_a_small_modal",
+  "sample_id_count": 700,
+  "sample_ids_digest": "a8e251b67a71935f8dfd38b0ef42aec86ca5ce01abe68558a587a06a208e14ff",
+  "scope_id": "2d7224d9551f97910d7a6259c407dd2666e7bdbdd22f7e2c1a10a7ab2dd6c95b",
+  "scope_version": "1"
+}

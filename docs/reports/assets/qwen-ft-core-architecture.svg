@@ -1,0 +1,115 @@
+<svg viewBox="0 0 1180 980" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+    </marker>
+    <marker id="arrow-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185"/>
+    </marker>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap');
+      text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace; }
+      .title { fill: #f8fafc; font-size: 18px; font-weight: 700; }
+      .sub { fill: #94a3b8; font-size: 10px; }
+      .box-title { fill: #f8fafc; font-size: 12px; font-weight: 700; text-anchor: middle; }
+      .box-sub { fill: #cbd5e1; font-size: 9px; text-anchor: middle; }
+      .tiny { fill: #94a3b8; font-size: 8px; text-anchor: middle; }
+      .label { fill: #cbd5e1; font-size: 8px; text-anchor: middle; }
+      .region { fill: none; stroke: #475569; stroke-width: 1.1; stroke-dasharray: 9,5; }
+      .region-title { fill: #cbd5e1; font-size: 10px; font-weight: 700; }
+      .train { fill: #fb7185; font-size: 9px; font-weight: 700; text-anchor: middle; }
+      .frozen { fill: #60a5fa; font-size: 9px; font-weight: 700; text-anchor: middle; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#0f172a"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+  <text x="40" y="40" class="title">Qwen2.5-VL LoRA fine-tuning: what actually learns?</text>
+  <text x="40" y="62" class="sub">The base multimodal model stays mostly frozen; LoRA adapters and the multimodal projector learn the real/fake task.</text>
+  <rect x="40" y="95" width="280" height="780" rx="12" class="region"/>
+  <text x="58" y="118" class="region-title">Image path</text>
+  <rect x="450" y="95" width="280" height="780" rx="12" class="region"/>
+  <text x="468" y="118" class="region-title">Text + multimodal fusion</text>
+  <rect x="850" y="95" width="280" height="780" rx="12" class="region"/>
+  <text x="868" y="118" class="region-title">Training objective</text>
+  <rect x="100" y="150" width="160" height="60" rx="6" fill="#0f172a"/>
+  <rect x="100" y="150" width="160" height="60" rx="6" fill="rgba(8,51,68,0.45)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="180" y="176" class="box-title">Input image</text>
+  <text x="180" y="194" class="box-sub">GenImage sample</text>
+  <path d="M 180 210 L 180 260" fill="none" stroke="#64748b" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <text x="218" y="240" class="label">loader</text>
+  <rect x="100" y="260" width="160" height="70" rx="6" fill="#0f172a"/>
+  <rect x="100" y="260" width="160" height="70" rx="6" fill="rgba(30,41,59,0.6)" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="180" y="288" class="box-title">Preprocess</text>
+  <text x="180" y="306" class="box-sub">resize / normalize</text>
+  <text x="180" y="322" class="box-sub">224 &lt;= pixels &lt;= 448</text>
+  <path d="M 180 330 L 180 385" fill="none" stroke="#64748b" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <rect x="100" y="385" width="160" height="80" rx="6" fill="#0f172a"/>
+  <rect x="100" y="385" width="160" height="80" rx="6" fill="rgba(8,51,68,0.35)" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="180" y="414" class="box-title">Vision encoder</text>
+  <text x="180" y="432" class="box-sub">ViT inside Qwen-VL</text>
+  <text x="180" y="449" class="frozen">frozen</text>
+  <path d="M 180 465 L 180 525" fill="none" stroke="#64748b" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <text x="229" y="498" class="label">image features</text>
+  <rect x="92" y="525" width="176" height="80" rx="6" fill="#0f172a"/>
+  <rect x="92" y="525" width="176" height="80" rx="6" fill="rgba(120,53,15,0.35)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="180" y="554" class="box-title">MLP projector</text>
+  <text x="180" y="572" class="box-sub">features -> tokens</text>
+  <text x="180" y="589" class="train">trainable</text>
+  <path d="M 180 605 L 180 670 L 450 670" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+  <text x="315" y="657" class="label">visual tokens</text>
+  <rect x="510" y="150" width="160" height="80" rx="6" fill="#0f172a"/>
+  <rect x="510" y="150" width="160" height="80" rx="6" fill="rgba(6,78,59,0.45)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="590" y="178" class="box-title">Prompt</text>
+  <text x="590" y="196" class="box-sub">classify real/fake</text>
+  <text x="590" y="212" class="box-sub">return JSON label</text>
+  <path d="M 590 230 L 590 305" fill="none" stroke="#34d399" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+  <rect x="510" y="305" width="160" height="70" rx="6" fill="#0f172a"/>
+  <rect x="510" y="305" width="160" height="70" rx="6" fill="rgba(6,78,59,0.35)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="590" y="333" class="box-title">Tokenizer</text>
+  <text x="590" y="351" class="box-sub">text tokens</text>
+  <path d="M 590 375 L 590 670" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="630" y="520" class="label">text tokens</text>
+  <rect x="485" y="650" width="210" height="90" rx="6" fill="#0f172a"/>
+  <rect x="485" y="650" width="210" height="90" rx="6" fill="rgba(76,29,149,0.42)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="590" y="681" class="box-title">Qwen 7B decoder</text>
+  <text x="590" y="700" class="box-sub">text + visual tokens</text>
+  <text x="590" y="717" class="train">LoRA trainable</text>
+  <path d="M 695 695 L 880 695" fill="none" stroke="#64748b" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <text x="787" y="681" class="label">next-token logits</text>
+  <rect x="905" y="160" width="180" height="80" rx="6" fill="#0f172a"/>
+  <rect x="905" y="160" width="180" height="80" rx="6" fill="rgba(8,51,68,0.45)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="995" y="188" class="box-title">Target answer</text>
+  <text x="995" y="207" class="box-sub">{label: real}</text>
+  <text x="995" y="223" class="box-sub">or {label: fake}</text>
+  <rect x="905" y="655" width="180" height="80" rx="6" fill="#0f172a"/>
+  <rect x="905" y="655" width="180" height="80" rx="6" fill="rgba(6,78,59,0.45)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="995" y="684" class="box-title">Cross entropy</text>
+  <text x="995" y="703" class="box-sub">predicted tokens</text>
+  <text x="995" y="719" class="box-sub">vs target tokens</text>
+  <path d="M 995 240 L 995 655" fill="none" stroke="#22d3ee" stroke-width="1.8" marker-end="url(#arrow-cyan)"/>
+  <text x="1047" y="450" class="label">supervision</text>
+  <path d="M 995 735 L 995 800 L 590 800 L 590 740" fill="none" stroke="#fb7185" stroke-width="2" marker-end="url(#arrow-rose)"/>
+  <text x="790" y="786" class="label">backward: update LoRA</text>
+  <path d="M 995 800 L 180 800 L 180 605" fill="none" stroke="#fb7185" stroke-width="2" marker-end="url(#arrow-rose)"/>
+  <text x="510" y="825" class="label">backward: update projector</text>
+  <rect x="455" y="890" width="270" height="50" rx="6" fill="#0f172a"/>
+  <rect x="455" y="890" width="270" height="50" rx="6" fill="rgba(136,19,55,0.35)" stroke="#fb7185" stroke-width="1.5"/>
+  <text x="590" y="912" class="box-title">Gradient accumulation x16</text>
+  <text x="590" y="930" class="box-sub">16 micro-steps before optimizer update</text>
+  <path d="M 590 800 L 590 890" fill="none" stroke="#fb7185" stroke-width="1.8" marker-end="url(#arrow-rose)"/>
+  <rect x="60" y="900" width="260" height="40" rx="6" fill="#0f172a"/>
+  <rect x="60" y="900" width="260" height="40" rx="6" fill="rgba(8,51,68,0.3)" stroke="#22d3ee" stroke-width="1.2"/>
+  <text x="190" y="925" class="tiny">Only adapter/projector weights change</text>
+  <rect x="860" y="900" width="260" height="40" rx="6" fill="#0f172a"/>
+  <rect x="860" y="900" width="260" height="40" rx="6" fill="rgba(76,29,149,0.3)" stroke="#a78bfa" stroke-width="1.2"/>
+  <text x="990" y="925" class="tiny">Base Qwen knowledge is preserved</text>
+</svg>

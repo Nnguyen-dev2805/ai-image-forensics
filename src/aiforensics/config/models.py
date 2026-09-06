@@ -132,11 +132,40 @@ class NPRConfig(BaseModel):
     allow_deferred: bool
 
 
+class QwenFTConfig(BaseModel):
+    enabled: bool = False
+    model_id: str = "Qwen/Qwen2.5-VL-7B-Instruct"
+    # GCS URI of the trained LoRA adapter; empty until a Vertex job finishes.
+    adapter_uri: str = ""
+    prompt_id: str = "qwen_ft_label_json_v1"
+    temperature: float = Field(default=0.0, ge=0.0)
+    max_new_tokens: int = Field(default=32, gt=0)
+    cache_outputs: bool = True
+    allow_deferred: bool = True
+    dtype: Literal["bfloat16", "float16", "float32"] = "float16"
+    # Label-only training target: no confidence, no evidence in this stage.
+    output_fields: list[Literal["label"]] = ["label"]
+    min_pixels: int = Field(default=50176, gt=0)
+    max_pixels: int = Field(default=200704, gt=0)
+
+    @model_validator(mode="after")
+    def validate_qwen_ft_config(self) -> "QwenFTConfig":
+        if self.min_pixels > self.max_pixels:
+            raise ValueError(
+                f"min_pixels ({self.min_pixels}) must be <= max_pixels ({self.max_pixels})"
+            )
+        if self.enabled and not self.adapter_uri:
+            raise ValueError("baselines.qwen_ft.adapter_uri is required when qwen_ft is enabled")
+        return self
+
+
 class BaselinesConfig(BaseModel):
     clip_probe: ClipProbeConfig
     qwen_vl: QwenVLConfig
     assisted_qwen: AssistedQwenConfig
     npr: NPRConfig
+    # Optional with an off default so pre-qwen_ft configs keep loading unchanged.
+    qwen_ft: QwenFTConfig = Field(default_factory=QwenFTConfig)
 
 
 class LabelsConfig(BaseModel):
