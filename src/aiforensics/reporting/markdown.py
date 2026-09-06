@@ -41,7 +41,7 @@ class ReportingError(ValueError):
 MetricValue = float | None
 ReportStatus = Literal["completed", "failed", "deferred", "missing"]
 
-_BASELINE_ORDER: tuple[str, ...] = ("clip_probe", "qwen_vl", "assisted_qwen", "npr")
+_BASELINE_ORDER: tuple[str, ...] = ("clip_probe", "qwen_vl", "assisted_qwen", "npr", "qwen_ft")
 
 # --------------------------------------------------------------------------- models
 
@@ -292,6 +292,7 @@ def _expected_slots(config: AppConfig) -> tuple[tuple[str, int | None], ...]:
     slots.append(("qwen_vl", None))
     slots.append(("assisted_qwen", None))
     slots.append(("npr", None))
+    slots.append(("qwen_ft", None))
     return tuple(slots)
 
 
@@ -527,6 +528,7 @@ def _configured_slots(config: AppConfig) -> dict[tuple[str, int | None], str]:
         "enabled" if config.baselines.assisted_qwen.enabled else "disabled"
     )
     slots[("npr", None)] = "enabled" if config.baselines.npr.enabled else "disabled"
+    slots[("qwen_ft", None)] = "enabled" if config.baselines.qwen_ft.enabled else "disabled"
     return slots
 
 
@@ -666,9 +668,14 @@ def _render_baseline_status(
             f"| qwen_vl | {_escape_cell(qwen.model_id)} | {_escape_cell(qwen.dtype)} |",
             f"| assisted_qwen | {_escape_cell(assisted.base_model_id)} "
             f"| {_escape_cell(assisted.dtype)} |",
-            "",
         ]
     )
+    if config.baselines.qwen_ft.enabled:
+        qwen_ft = config.baselines.qwen_ft
+        lines.append(
+            f"| qwen_ft | {_escape_cell(qwen_ft.model_id)} | {_escape_cell(qwen_ft.dtype)} |"
+        )
+    lines.append("")
     if qwen.dtype != assisted.dtype:
         lines.extend(
             [
@@ -684,7 +691,7 @@ def _render_baseline_status(
     mllm_runs = [
         r
         for r in resolved
-        if r.baseline in ("qwen_vl", "assisted_qwen") and r.status == "completed"
+        if r.baseline in ("qwen_vl", "assisted_qwen", "qwen_ft") and r.status == "completed"
     ]
     if mllm_runs:
         from aiforensics.schemas.predictions import load_predictions
@@ -761,7 +768,39 @@ def _render_overall_metrics(
         lines.append(
             f"| {_escape_cell(run.baseline)} | " + " | ".join(cells) + f" | {completion} |"
         )
+    if any(run.baseline == "qwen_ft" for run in resolved):
+        lines.extend(
+            [
+                "",
+                "qwen_ft is label-only in this phase; AUROC is skipped unless a "
+                "real fake score is available.",
+            ]
+        )
     lines.append("")
+
+    cm_runs = [
+        run
+        for run in resolved
+        if run.status == "completed"
+        and run.run_dir is not None
+        and (run.run_dir / "confusion_matrix.json").is_file()
+    ]
+    if cm_runs:
+        lines.extend(
+            [
+                "Confusion matrix artifacts (label order: real, fake):",
+                "",
+                "| Baseline | Artifact |",
+                "| --- | --- |",
+            ]
+        )
+        for run in cm_runs:
+            artifact = run.run_dir / "confusion_matrix.json" if run.run_dir else None
+            lines.append(
+                f"| {_escape_cell(run.baseline)} "
+                f"| {_escape_cell(_display_path(artifact)) if artifact else 'N/A'} |"
+            )
+        lines.append("")
 
 
 def _render_metric_cells(values: Sequence[MetricValue]) -> str:
@@ -885,6 +924,7 @@ def _enabled_baselines(config: AppConfig) -> set[str]:
             ("qwen_vl", config.baselines.qwen_vl),
             ("assisted_qwen", config.baselines.assisted_qwen),
             ("npr", config.baselines.npr),
+            ("qwen_ft", config.baselines.qwen_ft),
         )
         if cfg.enabled
     }
@@ -929,7 +969,7 @@ def _render_recommendation(
 ) -> None:
     lines.extend(["## Next-Step Recommendation", ""])
 
-    if config.project.phase == "phase_ab_smoke":
+    if config.project.phase in ("phase_ab_smoke", "qwen_ft_smoke"):
         lines.extend(
             [
                 "This report was generated for the smoke phase. Smoke metrics "

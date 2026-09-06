@@ -65,6 +65,7 @@ clip_probe
 qwen_vl
 npr
 assisted_qwen
+qwen_ft
 ```
 
 ### `source`
@@ -106,6 +107,18 @@ not_applicable
 ```
 
 `clip_probe` and `npr` should use `not_applicable` or omit `parse_status`.
+
+### `qwen_ft` records
+
+The fine-tuned `qwen_ft` baseline is label-only in its first phase:
+
+- `score_fake` is always `null`; AUROC is skipped for `qwen_ft` runs.
+- `explanation` is an empty string. The fine-tuning stage does not train or
+  evaluate explanations, so explanation quality is never reported for
+  `qwen_ft`.
+- `prompt_id` is `qwen_ft_label_json_v1`, `raw_output` stores the model's raw
+  text, and `parse_status` is `parsed`, `recovered`, or `failed` like the other
+  MLLM baselines.
 
 ## Validation Rules
 

@@ -526,3 +526,11 @@ Before trusting a hosted result:
 - [ ] smoke results are labelled as pipeline checks, not scientific evidence,
 - [ ] artifacts needed later were copied to persistent storage,
 - [ ] notebook outputs were cleared before committing.
+
+## Related runbooks
+
+- `docs/runbook-qwen-finetune-vertex.md` — the `qwen_ft` LoRA fine-tuning
+  flow: Kaggle export to GCS, Vertex AI CustomJob training, and eval-small /
+  eval-full through the same public CLI. The qwen_ft notebooks
+  (`kaggle_qwen_ft_export.ipynb`, `vertex_qwen_ft_submit_and_eval.ipynb`)
+  follow the same thin-wrapper rules as this runbook.

@@ -1,0 +1,11 @@
+Run completed successfully for baseline qwen_ft
+Processed 700 records.
+Model ID: Qwen/Qwen2.5-VL-7B-Instruct
+Adapter URI: /vol/checkpoints/protocol-a-small/final_adapter
+Prompt ID: qwen_ft_label_json_v1
+Compute dtype: float16
+Min Pixels: 50176
+Max Pixels: 200704
+Cache Hits: 0
+Cache Misses: 700
+Parsed: 700, Recovered: 0, Failed (Unknown): 0

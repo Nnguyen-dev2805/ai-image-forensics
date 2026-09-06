@@ -17,7 +17,7 @@ class PredictionRecord(BaseModel):
     label_true: Literal["real", "fake"]
     label_pred: Literal["real", "fake", "unknown"]
     score_fake: float | None = Field(ge=0.0, le=1.0)
-    model_name: Literal["clip_probe", "qwen_vl", "npr", "assisted_qwen"]
+    model_name: Literal["clip_probe", "qwen_vl", "npr", "assisted_qwen", "qwen_ft"]
     source: str = Field(min_length=1)
 
     run_id: str | None = None
@@ -127,7 +127,9 @@ def validate_predictions(
     warnings = []
 
     total_records = 0
-    mllm_models = {"qwen_vl", "assisted_qwen"}
+    # qwen_ft is a label-only MLLM: it always writes prompt_id/raw_output/
+    # parse_status and an empty explanation, but never a score or evidence.
+    mllm_models = {"qwen_vl", "assisted_qwen", "qwen_ft"}
 
     for record in records:
         total_records += 1

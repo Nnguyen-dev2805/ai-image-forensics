@@ -579,12 +579,19 @@ class TestExpectedSlots:
             ("qwen_vl", None),
             ("assisted_qwen", None),
             ("npr", None),
+            ("qwen_ft", None),
         )
 
     def test_slot_order_is_fixed(self, tmp_path):
         config = _make_config(tmp_path)
         slots = md._expected_slots(config)
-        assert [b for b, _ in slots] == ["clip_probe", "qwen_vl", "assisted_qwen", "npr"]
+        assert [b for b, _ in slots] == [
+            "clip_probe",
+            "qwen_vl",
+            "assisted_qwen",
+            "npr",
+            "qwen_ft",
+        ]
 
 
 class TestDiscovery:
@@ -593,7 +600,7 @@ class TestDiscovery:
         config.paths.output_root.mkdir()
         runs = md.discover_run_summaries(config)
         by_slot = {(r.baseline, r.seed): r for r in runs}
-        assert len(runs) == 4
+        assert len(runs) == 5
         assert by_slot[("qwen_vl", None)].status == "missing"
         assert by_slot[("qwen_vl", None)].run_id is None
 
@@ -671,7 +678,13 @@ class TestDiscovery:
         _complete_run(root, "002_clip_probe_seed70", "clip_probe", config=config)
 
         runs = md.discover_run_summaries(config)
-        assert {r.baseline for r in runs} == {"clip_probe", "qwen_vl", "assisted_qwen", "npr"}
+        assert {r.baseline for r in runs} == {
+            "clip_probe",
+            "qwen_vl",
+            "assisted_qwen",
+            "npr",
+            "qwen_ft",
+        }
         clip = next(r for r in runs if r.baseline == "clip_probe")
         assert clip.status == "completed"
 
@@ -810,7 +823,7 @@ class TestDiscovery:
         _complete_run(root, "001_clip_probe_seed70", "clip_probe", config=config)
 
         runs = md.discover_run_summaries(config)
-        assert len(runs) == 4  # clip completed + 3 missing slots
+        assert len(runs) == 5  # clip completed + 4 missing slots
 
 
 # ---------------------------------------------------------------------------
@@ -1467,7 +1480,7 @@ class TestReportCli:
             assert section in text
         out = capsys.readouterr().out
         assert "[report] project=" in out
-        assert "runs=4" in out
+        assert "runs=5" in out
         assert f"path={report_path}" in out
 
     def test_cli_exit_zero_with_deferred_and_missing_runs(self, tmp_path):

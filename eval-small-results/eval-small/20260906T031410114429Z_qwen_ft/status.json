@@ -1,0 +1,15 @@
+{
+  "baseline": "qwen_ft",
+  "status": "completed",
+  "reason": null,
+  "command": [
+    "/usr/local/bin/aiforensics",
+    "run",
+    "--baseline",
+    "qwen_ft",
+    "--config",
+    "configs/qwen_ft_protocol_a_small_modal.yaml"
+  ],
+  "started_at": "2026-09-06T03:14:10.114366+00:00",
+  "ended_at": "2026-09-06T03:24:21.986116+00:00"
+}
